@@ -1,0 +1,10 @@
+/target
+/indexes
+*.fits
+nohup.out
+.local.env
+.remote.*.env
+chart.svg
+/testdata/bench-full/
+/bench-out/
+.claude/

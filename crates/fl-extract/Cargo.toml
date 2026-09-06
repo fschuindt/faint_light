@@ -1,0 +1,11 @@
+[package]
+name = "fl-extract"
+description = "Image decoding and simplexy-style star extraction"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+fl-fits = { workspace = true }
+image = { workspace = true }
+thiserror = { workspace = true }

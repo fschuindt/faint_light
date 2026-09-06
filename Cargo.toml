@@ -1,0 +1,36 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/fl-fits",
+    "crates/fl-index",
+    "crates/fl-extract",
+    "crates/fl-solve",
+    "crates/fl-sky",
+    "crates/fl-server",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+repository = "https://github.com/fschuindt/faint_light"
+
+[workspace.dependencies]
+fl-fits = { path = "crates/fl-fits" }
+fl-index = { path = "crates/fl-index" }
+fl-extract = { path = "crates/fl-extract" }
+fl-solve = { path = "crates/fl-solve" }
+fl-sky = { path = "crates/fl-sky" }
+thiserror = "2"
+memmap2 = "0.9"
+rayon = "1.10"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "tiff"] }
+tracing = "0.1"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+panic = "abort"
+
+[profile.release.package."*"]
+opt-level = 3

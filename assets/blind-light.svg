@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 214" role="img" aria-label="Median wall time per blind solve, 256 real images" width="960" height="321" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica, Arial, sans-serif">
+<line x1="178.0" y1="28" x2="178.0" y2="174" stroke="#e5e5e5"/>
+<text x="178.0" y="22" text-anchor="middle" font-size="8.2" fill="#767676">0 s</text>
+<line x1="261.3" y1="28" x2="261.3" y2="174" stroke="#e5e5e5"/>
+<text x="261.3" y="22" text-anchor="middle" font-size="8.2" fill="#767676">5 s</text>
+<line x1="344.7" y1="28" x2="344.7" y2="174" stroke="#e5e5e5"/>
+<text x="344.7" y="22" text-anchor="middle" font-size="8.2" fill="#767676">10 s</text>
+<line x1="428.0" y1="28" x2="428.0" y2="174" stroke="#e5e5e5"/>
+<text x="428.0" y="22" text-anchor="middle" font-size="8.2" fill="#767676">15 s</text>
+<line x1="511.3" y1="28" x2="511.3" y2="174" stroke="#e5e5e5"/>
+<text x="511.3" y="22" text-anchor="middle" font-size="8.2" fill="#767676">20 s</text>
+<text x="166" y="47" text-anchor="end" font-size="8.2" fill="#313131">Faint Light</text>
+<rect x="178" y="37" width="5.4" height="13" fill="#7f112b"/>
+<text x="191.4" y="48" font-size="8.8" fill="#313131">0.32 s</text>
+<text x="636" y="48" text-anchor="end" font-size="8.2" fill="#767676">99.2% solved</text>
+<text x="166" y="71" text-anchor="end" font-size="8.2" fill="#313131">offline astrometry.net (modified by us)</text>
+<rect x="178" y="61" width="31.8" height="13" fill="#d5d5d5"/>
+<text x="217.8" y="72" font-size="8.8" fill="#313131">1.91 s</text>
+<text x="636" y="72" text-anchor="end" font-size="8.2" fill="#767676">100% solved</text>
+<text x="166" y="95" text-anchor="end" font-size="8.2" fill="#313131">ansvr</text>
+<rect x="178" y="85" width="118.4" height="13" fill="#d5d5d5"/>
+<text x="304.4" y="96" font-size="8.8" fill="#313131">7.11 s</text>
+<text x="636" y="96" text-anchor="end" font-size="8.2" fill="#767676">98.4% solved</text>
+<text x="166" y="119" text-anchor="end" font-size="8.2" fill="#313131">PlateSolve 3</text>
+<rect x="178" y="109" width="120.4" height="13" fill="#d5d5d5"/>
+<text x="306.4" y="120" font-size="8.8" fill="#313131">7.22 s</text>
+<text x="636" y="120" text-anchor="end" font-size="8.2" fill="#767676">33.2% solved</text>
+<text x="166" y="143" text-anchor="end" font-size="8.2" fill="#313131">offline astrometry.net</text>
+<rect x="178" y="133" width="168.9" height="13" fill="#d5d5d5"/>
+<text x="354.9" y="144" font-size="8.8" fill="#313131">10.1 s</text>
+<text x="636" y="144" text-anchor="end" font-size="8.2" fill="#767676">100% solved</text>
+<text x="166" y="167" text-anchor="end" font-size="8.2" fill="#313131">ASTAP</text>
+<rect x="178" y="157" width="331.8" height="13" fill="#d5d5d5"/>
+<text x="517.8" y="168" font-size="8.8" fill="#313131">19.9 s</text>
+<text x="636" y="168" text-anchor="end" font-size="8.2" fill="#767676">32.4% solved</text>
+<text x="178" y="204" font-size="8.2" fill="#767676">Median wall time per blind solve. 256 real frames, one machine.</text>
+</svg>

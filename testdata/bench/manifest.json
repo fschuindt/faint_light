@@ -1,0 +1,211 @@
+[
+ {
+  "id": "rand_s_000",
+  "role": "random",
+  "cls": "s",
+  "fov": 1.0,
+  "ra": 356.41044,
+  "dec": -20.80811,
+  "file": "rand_s_000.jpg",
+  "suite": "regression",
+  "expect": "solve"
+ },
+ {
+  "id": "rand_s_001",
+  "role": "random",
+  "cls": "s",
+  "fov": 1.0,
+  "ra": 44.64541,
+  "dec": -10.65855,
+  "file": "rand_s_001.jpg",
+  "suite": "regression",
+  "expect": "solve"
+ },
+ {
+  "id": "rand_s_002",
+  "role": "random",
+  "cls": "s",
+  "fov": 1.0,
+  "ra": 349.89159,
+  "dec": 15.7251,
+  "file": "rand_s_002.jpg",
+  "suite": "regression",
+  "expect": "solve"
+ },
+ {
+  "id": "rand_m_000",
+  "role": "random",
+  "cls": "m",
+  "fov": 4.0,
+  "ra": 5.26898,
+  "dec": 15.97739,
+  "file": "rand_m_000.jpg",
+  "suite": "regression",
+  "expect": "solve"
+ },
+ {
+  "id": "rand_m_001",
+  "role": "random",
+  "cls": "m",
+  "fov": 4.0,
+  "ra": 294.05332,
+  "dec": -1.94952,
+  "file": "rand_m_001.jpg",
+  "suite": "regression",
+  "expect": "solve"
+ },
+ {
+  "id": "rand_m_002",
+  "role": "random",
+  "cls": "m",
+  "fov": 4.0,
+  "ra": 144.30448,
+  "dec": -64.47567,
+  "file": "rand_m_002.jpg",
+  "suite": "regression",
+  "expect": "solve"
+ },
+ {
+  "id": "rand_l_000",
+  "role": "random",
+  "cls": "l",
+  "fov": 10.0,
+  "ra": 122.71715,
+  "dec": -19.73381,
+  "file": "rand_l_000.jpg",
+  "suite": "regression",
+  "expect": "solve"
+ },
+ {
+  "id": "rand_l_001",
+  "role": "random",
+  "cls": "l",
+  "fov": 10.0,
+  "ra": 23.747,
+  "dec": -19.05584,
+  "file": "rand_l_001.jpg",
+  "suite": "regression",
+  "expect": "solve"
+ },
+ {
+  "id": "rand_l_002",
+  "role": "random",
+  "cls": "l",
+  "fov": 10.0,
+  "ra": 142.62114,
+  "dec": 17.85959,
+  "file": "rand_l_002.jpg",
+  "suite": "regression",
+  "expect": "solve"
+ },
+ {
+  "id": "base_m",
+  "role": "base",
+  "cls": "m",
+  "fov": 4.0,
+  "ra": 83.82,
+  "dec": -5.39,
+  "file": "base_m.jpg",
+  "suite": "nearby_setup",
+  "expect": "solve"
+ },
+ {
+  "id": "near1_m",
+  "role": "near1",
+  "cls": "m",
+  "fov": 4.0,
+  "ra": 85.22622,
+  "dec": -4.99,
+  "file": "near1_m.jpg",
+  "suite": "nearby",
+  "expect": "solve"
+ },
+ {
+  "id": "near2_m",
+  "role": "near2",
+  "cls": "m",
+  "fov": 4.0,
+  "ra": 86.63244,
+  "dec": -4.59,
+  "file": "near2_m.jpg",
+  "suite": "nearby",
+  "expect": "solve"
+ },
+ {
+  "id": "near3_m",
+  "role": "near3",
+  "cls": "m",
+  "fov": 4.0,
+  "ra": 88.03865,
+  "dec": -4.19,
+  "file": "near3_m.jpg",
+  "suite": "nearby",
+  "expect": "solve"
+ },
+ {
+  "id": "rand_s_033",
+  "role": "random",
+  "cls": "s",
+  "fov": 1.0,
+  "ra": 61.37316,
+  "dec": 9.7115,
+  "file": "rand_s_033.jpg",
+  "suite": "known_fail",
+  "expect": "fail"
+ },
+ {
+  "id": "rand_m_014",
+  "role": "random",
+  "cls": "m",
+  "fov": 4.0,
+  "ra": 273.45631,
+  "dec": -11.61927,
+  "file": "rand_m_014.jpg",
+  "suite": "known_fail",
+  "expect": "fail"
+ },
+ {
+  "id": "rand_l_054",
+  "role": "random",
+  "cls": "l",
+  "fov": 10.0,
+  "ra": 271.29551,
+  "dec": -19.18298,
+  "file": "rand_l_054.jpg",
+  "suite": "known_fail",
+  "expect": "fail"
+ },
+ {
+  "id": "rand_xl_029",
+  "role": "random",
+  "cls": "xl",
+  "fov": 20.0,
+  "ra": 267.64694,
+  "dec": -22.09377,
+  "file": "rand_xl_029.jpg",
+  "suite": "known_fail",
+  "expect": "fail"
+ },
+ {
+  "id": "dist_s",
+  "role": "distant",
+  "cls": "s",
+  "fov": 1.0,
+  "ra": 273.825,
+  "dec": -9.448,
+  "file": "dist_s.jpg",
+  "suite": "known_fail",
+  "expect": "fail"
+ },
+ {
+  "id": "base_xl",
+  "role": "base",
+  "cls": "xl",
+  "fov": 20.0,
+  "ra": 310.0,
+  "dec": 45.0,
+  "file": "base_xl.jpg",
+  "suite": "known_fail",
+  "expect": "fail"
+ }
+]

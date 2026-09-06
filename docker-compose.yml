@@ -1,0 +1,22 @@
+services:
+  faint_light:
+    build: .
+    image: faint_light
+    container_name: faint_light
+    ports:
+      # 8100 on the host so it can run beside a stock astrometry.net
+      # container on 8000.
+      - "8100:8000"
+    volumes:
+      - ./indexes:/index:ro
+    environment:
+      # In-memory index cache budget (GB) — how much index data to keep
+      # pinned in RAM for fast solving.
+      FAINT_LIGHT_CACHE_GB: "2.0"
+      # Optional rig hint: your camera's pixel scale range in arcsec/pixel.
+      # Uncomment to make even the first solve after a restart fast.
+      # FAINT_LIGHT_SCALE_LOW: "1.5"
+      # FAINT_LIGHT_SCALE_HIGH: "3.0"
+      # FAINT_LIGHT_SOLVE_TIMEOUT: "300"
+      RUST_LOG: info
+    restart: unless-stopped

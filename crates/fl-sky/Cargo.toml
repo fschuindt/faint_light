@@ -1,0 +1,8 @@
+[package]
+name = "fl-sky"
+description = "All-sky alt/az chart rendering: constellation figures, grid, FOV footprint"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]

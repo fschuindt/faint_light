@@ -1,0 +1,9 @@
+[package]
+name = "fl-fits"
+description = "Minimal FITS reader: headers, HDU layout, binary tables, image HDUs"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+thiserror = { workspace = true }

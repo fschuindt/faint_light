@@ -1,0 +1,908 @@
+openapi: 3.1.0
+jsonSchemaDialect: https://json-schema.org/draft/2020-12/schema
+
+info:
+  title: Faint Light
+  version: 0.1.0
+  summary: Fast, self-hosted plate solving with a nova.astrometry.net-compatible API.
+  description: |
+    Faint Light implements the HTTP contract of nova.astrometry.net so that
+    imaging software such as NINA can use it as a drop-in local replacement,
+    plus one extension of its own (`/api/skyview`).
+
+    Conventions shared by every operation:
+
+    * **No authentication.** `/api/login` accepts any API key, or none, and
+      always succeeds. The session token it returns is never checked.
+    * **Trailing slashes are optional.** Every `/api/...` and `/wcs_file/...`
+      path is served both with and without a trailing slash; only the
+      slash-less form is listed here.
+    * **Errors** are JSON: `{"status": "error", "errormessage": "..."}` with
+      an HTTP status of 400, 404, 422, 501, 503 or 504 as documented per
+      operation.
+    * **Jobs are in memory.** A submission and its job are created together
+      on upload (nova creates the job later; clients handle both). A server
+      restart forgets all jobs.
+    * **Request bodies** are limited to 256 MiB.
+  license:
+    name: Apache-2.0
+    identifier: Apache-2.0
+  contact:
+    name: Faint Light
+    url: https://nightsky.observer/faint-light/
+
+externalDocs:
+  description: Project page and benchmark
+  url: https://nightsky.observer/faint-light/
+
+servers:
+  - url: http://localhost:8000
+    description: Default port (`FAINT_LIGHT_PORT`)
+
+tags:
+  - name: nova
+    description: The nova.astrometry.net contract, as consumed by NINA and the astrometry.net client.
+  - name: results
+    description: Solved calibrations and derived files.
+  - name: skyview
+    description: Faint Light extension. Synchronous solve plus an all-sky chart of where the image was taken.
+  - name: stubs
+    description: Endpoints of the nova contract that Faint Light does not implement. Present so clients get a clean error.
+
+paths:
+  /:
+    get:
+      operationId: index
+      summary: Server banner
+      description: A one-line plain-text banner with the version. Handy as a liveness check.
+      tags: [nova]
+      responses:
+        "200":
+          description: Banner
+          content:
+            text/plain:
+              schema:
+                type: string
+                examples: ["faint_light 0.1.0 — nova.astrometry.net-compatible plate solving server\n"]
+
+  /api/login:
+    post:
+      operationId: login
+      summary: Obtain a session
+      description: |
+        Always succeeds. The body is read only for a friendly log line: a
+        `request-json` form field (URL-encoded, as NINA sends it, or
+        multipart, as `curl -F` sends it) or a bare JSON body, any of which
+        may carry `{"apikey": "..."}`. A missing or malformed body still logs
+        in.
+      tags: [nova]
+      requestBody:
+        required: false
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: "#/components/schemas/RequestJsonForm"
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/RequestJsonForm"
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: Session created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LoginResponse"
+
+  /api/upload:
+    post:
+      operationId: upload
+      summary: Submit an image for solving
+      description: |
+        Multipart upload of one image. Returns immediately with a submission
+        id; poll `/api/submissions/{id}` for the job id, then `/api/jobs/{id}`
+        until the status leaves `solving`, then read
+        `/api/jobs/{id}/calibration`.
+
+        Optional solve hints go in the `request-json` field as a JSON object
+        (see `UploadRequestJson`). Without hints the solve is blind; Faint
+        Light's warm start may still reuse the scale learned from earlier
+        solves.
+
+        Accepted image formats: FITS (BITPIX 8, 16, 32, -32 and -64, with
+        BZERO/BSCALE applied, mono or multi-plane averaged to luma), JPEG,
+        PNG and TIFF (8/16-bit, mono or RGB).
+      tags: [nova]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  contentEncoding: binary
+                  description: The image to solve.
+                request-json:
+                  $ref: "#/components/schemas/UploadRequestJson"
+            encoding:
+              file:
+                contentType: image/fits, image/jpeg, image/png, image/tiff, application/octet-stream
+              request-json:
+                contentType: application/json
+      responses:
+        "200":
+          description: Upload accepted and queued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UploadResponse"
+        "400":
+          description: No `file` field, empty file, or unreadable multipart body
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: Solve queue full. The job is recorded as failed; retry later.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/url_upload:
+    post:
+      operationId: urlUpload
+      summary: Not supported
+      description: nova's fetch-by-URL upload. Faint Light does not fetch remote images.
+      tags: [stubs]
+      responses:
+        "501":
+          description: Not implemented
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/submissions/{id}:
+    get:
+      operationId: submissionStatus
+      summary: Submission status
+      description: |
+        Mirrors nova's submission record. Unlike nova, the `jobs` array is
+        populated immediately after upload, so a client can skip straight to
+        polling the job. `job_calibrations` lists `[job, job]` once the job has
+        succeeded and is empty otherwise.
+      tags: [nova]
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        "200":
+          description: Submission record
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SubmissionStatus"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/jobs/{id}:
+    get:
+      operationId: jobStatus
+      summary: Job status
+      description: Poll this until `status` is `success` or `failure`.
+      tags: [nova]
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        "200":
+          description: Current status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobStatus"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/jobs/{id}/calibration:
+    get:
+      operationId: jobCalibration
+      summary: Solved calibration
+      description: |
+        The astrometric solution in nova's conventions. For JPEG, PNG and TIFF
+        input the orientation and parity follow nova's convention for
+        top-down raster images, so values agree with what nova would return
+        for the same file.
+      tags: [results]
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        "200":
+          description: Calibration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Calibration"
+        "404":
+          description: No such job, or the job has not (yet) succeeded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/jobs/{id}/info:
+    get:
+      operationId: jobInfo
+      summary: Job summary
+      description: |
+        Status, original filename, start time and, once solved, the
+        calibration. Object identification is not implemented, so
+        `objects_in_field`, `machine_tags` and `tags` are always empty.
+      tags: [results]
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        "200":
+          description: Job info
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobInfo"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/jobs/{id}/objects_in_field:
+    get:
+      operationId: objectsInField
+      summary: Objects in field (always empty)
+      description: Present for contract compatibility. Object identification is not implemented; the list is always empty and the job id is not checked.
+      tags: [results]
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        "200":
+          description: Empty list
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [objects_in_field]
+                properties:
+                  objects_in_field:
+                    type: array
+                    items: { type: string }
+                    maxItems: 0
+
+  /api/jobs/{id}/machine_tags:
+    get:
+      operationId: machineTags
+      summary: Machine tags (always empty)
+      description: Present for contract compatibility. Always empty; the job id is not checked.
+      tags: [results]
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        "200":
+          description: Empty list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TagList"
+
+  /api/jobs/{id}/tags:
+    get:
+      operationId: tags
+      summary: Tags (always empty)
+      description: Present for contract compatibility. Always empty; the job id is not checked.
+      tags: [results]
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        "200":
+          description: Empty list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TagList"
+
+  /api/jobs/{id}/annotations:
+    get:
+      operationId: annotations
+      summary: Annotations (always empty)
+      description: Present for contract compatibility. Always empty; the job id is not checked.
+      tags: [results]
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        "200":
+          description: Empty list
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [annotations]
+                properties:
+                  annotations:
+                    type: array
+                    items: { type: object }
+                    maxItems: 0
+
+  /wcs_file/{id}:
+    get:
+      operationId: wcsFile
+      summary: WCS as a FITS header
+      description: |
+        A minimal single-HDU FITS file (no data) carrying the solved TAN WCS:
+        `CTYPE1/2`, `CRVAL1/2`, `CRPIX1/2` (1-based), the `CD` matrix,
+        `IMAGEW` and `IMAGEH`. This is what astrometry.net's `solve-field`
+        writes as `*.wcs`. No SIP distortion terms.
+      tags: [results]
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        "200":
+          description: FITS header
+          content:
+            application/fits:
+              schema:
+                type: string
+                contentEncoding: binary
+        "404":
+          description: No such job, or the job has not succeeded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/skyview:
+    post:
+      operationId: skyview
+      summary: Solve synchronously and chart the field on the local sky
+      description: |
+        Faint Light extension. Solves the image in the request cycle (no
+        polling), then places the solved field in the observer's sky at the
+        time of exposure and renders an all-sky chart.
+
+        The response carries the calibration, the observer record, the
+        field's altitude and azimuth, and `sky_chart_url`, which serves an
+        SVG azimuthal-equidistant chart: zenith at the centre, horizon at
+        the rim, North up, East left, with constellation stick figures and
+        labels, a low-opacity alt/az grid, and the image footprint outlined
+        in red.
+
+        The call blocks for up to the per-job solve budget
+        (`FAINT_LIGHT_SOLVE_TIMEOUT`, default 300 s) plus 30 s of queueing
+        grace. A field below the horizon is still returned (with
+        `above_horizon: false`) and logged as a warning, since it usually
+        means a wrong timestamp or site.
+      tags: [skyview]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file, timestamp, latitude, longitude]
+              properties:
+                file:
+                  type: string
+                  contentEncoding: binary
+                  description: The image to solve, same formats as `/api/upload`.
+                timestamp:
+                  type: string
+                  description: |
+                    Exposure time in UTC. Either Unix seconds (integer or
+                    decimal) or `YYYY-MM-DDTHH:MM:SS[.fff]Z`.
+                  examples: ["2026-07-13T02:10:00Z", "1783994400"]
+                latitude:
+                  type: string
+                  description: Site latitude in degrees, north positive, -90 to 90. `lat` is accepted as an alias.
+                  examples: ["40.7128"]
+                longitude:
+                  type: string
+                  description: Site longitude in degrees, east positive, -180 to 360. `lon` is accepted as an alias.
+                  examples: ["-74.0060"]
+                request-json:
+                  $ref: "#/components/schemas/UploadRequestJson"
+            encoding:
+              file:
+                contentType: image/fits, image/jpeg, image/png, image/tiff, application/octet-stream
+              request-json:
+                contentType: application/json
+      responses:
+        "200":
+          description: Solved and charted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SkyviewResponse"
+        "400":
+          description: Missing or invalid `file`, `timestamp`, `latitude` or `longitude`
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "422":
+          description: The solver could not solve the image
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SkyviewFailure"
+        "503":
+          description: Solve queue full
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "504":
+          description: The solve did not finish within the budget
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /skyview/{id}/chart.svg:
+    get:
+      operationId: skyviewChart
+      summary: All-sky chart for a skyview job
+      description: The SVG rendered by `POST /api/skyview`, addressed by the `job` id it returned. This path has no trailing-slash variant.
+      tags: [skyview]
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        "200":
+          description: SVG chart
+          content:
+            image/svg+xml:
+              schema:
+                type: string
+        "404":
+          description: No chart for this job (only skyview jobs have one)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /new_fits_file/{id}:
+    get:
+      operationId: newFitsFile
+      summary: Not available
+      description: nova's re-exported FITS image. Not produced by Faint Light.
+      tags: [stubs]
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /annotated_display/{id}:
+    get:
+      operationId: annotatedDisplay
+      summary: Not available
+      description: nova's annotated preview image. Not produced by Faint Light.
+      tags: [stubs]
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+components:
+  parameters:
+    id:
+      name: id
+      in: path
+      required: true
+      description: Submission or job id, as returned by the upload. Ids are small integers assigned from one counter, so a submission and its job never share an id.
+      schema:
+        type: integer
+        format: int64
+        minimum: 1
+
+  responses:
+    NotFound:
+      description: No such submission or job
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+
+  schemas:
+    Error:
+      type: object
+      required: [status, errormessage]
+      properties:
+        status:
+          const: error
+        errormessage:
+          type: string
+      examples:
+        - status: error
+          errormessage: no such job
+
+    RequestJsonForm:
+      type: object
+      description: A form whose `request-json` field holds a JSON document as a string. This is how nova clients send every request body.
+      properties:
+        request-json:
+          type: string
+          contentMediaType: application/json
+          examples: ['{"apikey": "anything"}']
+
+    LoginRequest:
+      type: object
+      properties:
+        apikey:
+          type: string
+          description: Ignored. Any value, or none, authenticates.
+      additionalProperties: true
+
+    LoginResponse:
+      type: object
+      required: [status, message, authenticated, session]
+      properties:
+        status:
+          const: success
+        message:
+          type: string
+          examples: ["authenticated user: anonymous"]
+        authenticated:
+          const: true
+        session:
+          type: string
+          description: 32 hex characters. Never checked by the server.
+          pattern: "^[0-9a-f]{32}$"
+
+    UploadRequestJson:
+      type: object
+      description: |
+        Solve hints, in nova's vocabulary. All fields are optional; numbers
+        may also be sent as numeric strings. Unknown fields are ignored.
+
+        Scale hints need `scale_units` plus either `scale_lower`/`scale_upper`
+        (`scale_type: ul`, the default) or `scale_est`/`scale_err`
+        (`scale_type: ev`, where `scale_err` is a percentage, default 20).
+        With `scale_units` of `degwidth` (the default when the units are
+        omitted) or `arcminwidth` the bounds describe the image width; with
+        `arcsecperpix` they describe the pixel scale.
+
+        A position hint needs `center_ra` and `center_dec`; `radius` bounds
+        the search around it.
+      properties:
+        session:
+          type: string
+          description: Ignored.
+        allow_commercial_use:
+          type: string
+          description: Ignored (nova licensing field).
+        allow_modifications:
+          type: string
+          description: Ignored (nova licensing field).
+        publicly_visible:
+          type: string
+          description: Ignored.
+        scale_units:
+          type: string
+          enum: [degwidth, arcminwidth, arcsecperpix, app]
+          description: Unit of the scale bounds. `app` is an alias of `arcsecperpix`. Defaults to `degwidth`.
+        scale_type:
+          type: string
+          enum: [ul, ev]
+          default: ul
+        scale_lower:
+          type: number
+          description: "Lower scale bound (`scale_type: ul`), in `scale_units`."
+        scale_upper:
+          type: number
+          description: "Upper scale bound (`scale_type: ul`), in `scale_units`."
+        scale_est:
+          type: number
+          description: "Scale estimate (`scale_type: ev`), in `scale_units`."
+        scale_err:
+          type: number
+          description: Allowed error around `scale_est`, in percent.
+          default: 20
+          minimum: 0
+          maximum: 100
+        center_ra:
+          type: number
+          description: Position hint, right ascension in degrees.
+          minimum: 0
+          maximum: 360
+        center_dec:
+          type: number
+          description: Position hint, declination in degrees.
+          minimum: -90
+          maximum: 90
+        radius:
+          type: number
+          description: Search radius around the position hint, degrees.
+          exclusiveMinimum: 0
+        downsample_factor:
+          type: integer
+          description: Downsample the image by this factor before star extraction.
+          minimum: 1
+        parity:
+          type: integer
+          enum: [0, 1, 2]
+          description: "0: normal parity only, 1: flipped only, 2 (default): try both."
+          default: 2
+        tweak_order:
+          type: integer
+          description: Accepted and ignored. Faint Light fits a TAN solution without SIP distortion.
+        crpix_center:
+          type: boolean
+          description: Accepted and ignored.
+      additionalProperties: true
+      examples:
+        - scale_units: arcsecperpix
+          scale_type: ul
+          scale_lower: 1.5
+          scale_upper: 3.0
+          center_ra: 83.0
+          center_dec: -5.0
+          radius: 10
+          downsample_factor: 2
+          parity: 2
+        - scale_units: degwidth
+          scale_type: ev
+          scale_est: 2.0
+          scale_err: 10
+
+    UploadResponse:
+      type: object
+      required: [status, subid, hash]
+      properties:
+        status:
+          const: success
+        subid:
+          type: integer
+          format: int64
+          description: Submission id. Poll `/api/submissions/{subid}`.
+        hash:
+          type: string
+          description: SHA-1 of the uploaded bytes, hex.
+          pattern: "^[0-9a-f]{40}$"
+      examples:
+        - status: success
+          subid: 1
+          hash: 2fd4e1c67a2d28fced849ee1bb76e7391b93eb12
+
+    NovaTime:
+      type: string
+      description: nova-style timestamp, UTC, `YYYY-MM-DD HH:MM:SS.ffffff`.
+      pattern: "^\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}\\.\\d{6}$"
+      examples: ["2026-07-13 02:10:00.123456"]
+
+    SubmissionStatus:
+      type: object
+      required: [processing_started, processing_finished, user, user_images, images, jobs, job_calibrations]
+      properties:
+        processing_started:
+          $ref: "#/components/schemas/NovaTime"
+        processing_finished:
+          oneOf:
+            - $ref: "#/components/schemas/NovaTime"
+            - type: "null"
+          description: Null until the job finishes (success or failure).
+        user:
+          const: 1
+        user_images:
+          type: array
+          items: { type: integer, format: int64 }
+          description: Always `[job]`.
+        images:
+          type: array
+          items: { type: integer, format: int64 }
+          description: Always `[job]`.
+        jobs:
+          type: array
+          items: { type: integer, format: int64 }
+          minItems: 1
+          maxItems: 1
+          description: The single job for this submission. Populated immediately.
+        job_calibrations:
+          type: array
+          description: "`[[job, job]]` once the job has succeeded, otherwise empty."
+          items:
+            type: array
+            items: { type: integer, format: int64 }
+            minItems: 2
+            maxItems: 2
+      examples:
+        - processing_started: "2026-07-13 02:10:00.000000"
+          processing_finished: "2026-07-13 02:10:00.412000"
+          user: 1
+          user_images: [2]
+          images: [2]
+          jobs: [2]
+          job_calibrations: [[2, 2]]
+
+    JobStatusValue:
+      type: string
+      enum: [solving, success, failure]
+
+    JobStatus:
+      type: object
+      required: [status]
+      properties:
+        status:
+          $ref: "#/components/schemas/JobStatusValue"
+
+    Calibration:
+      type: object
+      description: Astrometric solution in nova's conventions, plus the two `*_arcsec` size fields nova also returns.
+      required: [ra, dec, radius, pixscale, orientation, parity, width_arcsec, height_arcsec]
+      properties:
+        ra:
+          type: number
+          description: Image-centre right ascension, degrees J2000.
+          minimum: 0
+          maximum: 360
+        dec:
+          type: number
+          description: Image-centre declination, degrees J2000.
+          minimum: -90
+          maximum: 90
+        radius:
+          type: number
+          description: Angular distance from the image centre to a corner, degrees.
+        pixscale:
+          type: number
+          description: Arcseconds per pixel.
+        orientation:
+          type: number
+          description: Position angle of image "up", degrees east of north.
+        parity:
+          type: number
+          enum: [1, -1]
+          description: Sign of the determinant of the CD matrix. `1` normal, `-1` flipped.
+        width_arcsec:
+          type: number
+          description: Image width times `pixscale`.
+        height_arcsec:
+          type: number
+          description: Image height times `pixscale`.
+      examples:
+        - ra: 279.234
+          dec: -23.904
+          radius: 1.87
+          pixscale: 3.52
+          orientation: 178.4
+          parity: -1
+          width_arcsec: 11274.2
+          height_arcsec: 7395.9
+
+    JobInfo:
+      type: object
+      required: [status, original_filename, started, objects_in_field, machine_tags, tags]
+      properties:
+        status:
+          $ref: "#/components/schemas/JobStatusValue"
+        original_filename:
+          type: string
+          description: The `file` part's filename, or `upload` when the client sent none.
+        started:
+          $ref: "#/components/schemas/NovaTime"
+        calibration:
+          $ref: "#/components/schemas/Calibration"
+          description: Present when `status` is `success`.
+        error_message:
+          type: string
+          description: Present when `status` is `failure`.
+        objects_in_field:
+          type: array
+          items: { type: string }
+          maxItems: 0
+        machine_tags:
+          type: array
+          items: { type: string }
+          maxItems: 0
+        tags:
+          type: array
+          items: { type: string }
+          maxItems: 0
+
+    TagList:
+      type: object
+      required: [tags]
+      properties:
+        tags:
+          type: array
+          items: { type: string }
+          maxItems: 0
+
+    SkyviewResponse:
+      type: object
+      required: [status, subid, job, calibration, observer, field, sky_chart_url]
+      properties:
+        status:
+          const: success
+        subid:
+          type: integer
+          format: int64
+        job:
+          type: integer
+          format: int64
+          description: Job id. Also valid for `/api/jobs/{id}/...` and `/wcs_file/{id}`.
+        calibration:
+          $ref: "#/components/schemas/Calibration"
+        observer:
+          type: object
+          required: [timestamp_utc, unix, latitude, longitude, lst_deg]
+          properties:
+            timestamp_utc:
+              type: string
+              description: The parsed exposure time, ISO 8601 UTC.
+            unix:
+              type: number
+              description: The same instant as Unix seconds.
+            latitude:
+              type: number
+            longitude:
+              type: number
+            lst_deg:
+              type: number
+              description: Local sidereal time at the site and instant, degrees.
+              minimum: 0
+              maximum: 360
+        field:
+          type: object
+          required: [alt, az, above_horizon, width_deg, height_deg, orientation, parity, corners_radec]
+          properties:
+            alt:
+              type: number
+              description: Altitude of the field centre, degrees. Negative when below the horizon.
+              minimum: -90
+              maximum: 90
+            az:
+              type: number
+              description: Azimuth of the field centre, degrees, north through east.
+              minimum: 0
+              maximum: 360
+            above_horizon:
+              type: boolean
+            width_deg:
+              type: number
+            height_deg:
+              type: number
+            orientation:
+              type: number
+              description: Same as `calibration.orientation`.
+            parity:
+              type: number
+              enum: [1, -1]
+            corners_radec:
+              type: array
+              description: RA/Dec of the four image corners in border order, starting at pixel (0, 0).
+              minItems: 4
+              maxItems: 4
+              items:
+                type: array
+                prefixItems:
+                  - type: number
+                    description: RA, degrees
+                  - type: number
+                    description: Dec, degrees
+                minItems: 2
+                maxItems: 2
+        sky_chart_url:
+          type: string
+          description: Path of the rendered chart, `/skyview/{job}/chart.svg`, relative to the server root.
+          pattern: "^/skyview/\\d+/chart\\.svg$"
+
+    SkyviewFailure:
+      type: object
+      required: [status, job, errormessage]
+      properties:
+        status:
+          const: failure
+        job:
+          type: integer
+          format: int64
+        errormessage:
+          type: string
