@@ -15,36 +15,56 @@ Full benchmark, method and the other charts:
 ## Features
 
 - **Native Rust solver**: mmaps stock astrometry.net index files (4100/4200/5000 series) and traverses their libkd kd-trees directly without C dependencies, neither format conversion.
-- **Warm-start** (not used for the benchmark): the server remembers your last few solves. If the next image is near the previous one, it checks the old solution against the new stars instead of searching again, in under 10 ms. If you slewed somewhere else, it still knows your pixel scale and searches less. Useful because NINA sends no hints at all.
+- **Warm-start** (not used for the benchmark): the server remembers your last few solves. If the next image is near the previous one, it checks the old solution against the new stars instead of searching again, in under 10 ms. If you slewed somewhere else, it still knows your pixel scale and searches less. Useful because NINA and some other programs sends no hints at all.
 - **In-memory index cache** (not used for the benchmark): A configurable RAM budget (`FAINT_LIGHT_CACHE_GB`) that prefetches the indexes relevant to your rig.
-- Blind fallback always remains: first-ever solve works with zero hints.
+- Blind fallback always remains: first-ever solve works with zero hints. **The benchmark was created using blind solves.**
 - [Solved FITS and sky charts](#faint-light-api) (Bonus): one solve call can also hand back the image as a FITS carrying its WCS, and an all-sky chart of where the frame was taken.
-- [Desktop GUI](docs/GUI.md) (Optional): a small cross-platform window to run the server and read its log. Off by default.
+- [Desktop GUI](docs/GUI.md) (Optional): a small cross-platform window to run the server and read its log. Off by default. Mainly created for Windows users.
 
 ## Documentation
 
-- [Releases](docs/Releases.md) - prebuilt binaries, supported platforms, cutting a release
-- [Desktop GUI](docs/GUI.md) - the optional window, and where it stores its files
+- [Releases](docs/Releases.md) - prebuilt binaries, supported platforms, and releasing
+- [Desktop GUI](docs/GUI.md) - the optional desktop GUI
 - [Windows](docs/Windows.md) - building and running natively on Windows
 - [`openapi.yml`](openapi.yml) - the complete API contract
 
 ## Quick start
 
-Put astrometry.net index files in `./indexes` or set `FAINT_LIGHT_INDEX_DIR` (see `scripts/download_indexes.sh` for downloading it).
+The **headless version** includes just the Faint Light API Server. The **desktop GUI version** includes both the Faint Light API Server and a simple Windows-like desktop GUI. The desktop GUI was designed for Windows users that want to avoid Docker and CLIs. It's just for setting the server on/off, and basic configuration. Plate-solving and other features are done via the API or the web UI, which both versions have.
 
-### Using Docker
+```mermaid
+flowchart LR
+    subgraph Core["Faint Light API Server (Headless)"]
+        direction TB
+        Nova["nova.astrometry.net API"]
+        API["Faint Light API"]
+        Web["Web UI (Planned)"]
+    end
+
+    subgraph Desktop["Desktop GUI Version"]
+        GUI["Manages the headless version"]
+    end
+
+    GUI --> Core
+```
+
+### Headless
+
+Put [astrometry.net index files](https://data.astrometry.net/) in `./indexes` or set `FAINT_LIGHT_INDEX_DIR` (see `scripts/download_indexes.sh` for downloading it).
+
+#### Using Docker
 
 ```bash
 docker compose up -d --build
 ```
 
-### Without Docker (Manual compilation)
+#### Without Docker (Manual compilation)
 
 ```bash
 FAINT_LIGHT_INDEX_DIR=./indexes cargo run --release -p fl-server
 ```
 
-### Testing Setup
+#### Testing Setup
 
 Test a submission end to end:
 
@@ -52,11 +72,20 @@ Test a submission end to end:
 ./scripts/test_submission.sh path/to/image.jpg localhost:7222
 ```
 
-### NINA Integration
+### Desktop GUI
 
-In **NINA -> Options -> Plate Solving -> Astrometry.net**, set the API URL to
-`http://localhost:7222/nova` **(note the `/nova`)** and any API key (it is
-ignored). That's it.
+Just configure the index directory to point to the [astrometry.net index files](https://data.astrometry.net/) path on your computer, make sure the index cache in GB is set to a comfortable amount and start the server. For more information about this GUI, check its [documentation](docs/GUI.md).
+
+<img src="assets/desktop-GUI.png" alt="">
+
+## NINA Integration
+
+In **NINA -> Options -> Plate Solving -> Astrometry.net**, set the API URL to:  
+`http://localhost:7222/nova` **(note the `/nova`)**
+
+And you can use any API key (it's ignored).
+
+That's it.
 
 ## Configuration (environment variables)
 
@@ -71,42 +100,81 @@ ignored). That's it.
 | `FAINT_LIGHT_FAKE` | unset | `1` = return canned solutions (API testing without indexes) |
 | `RUST_LOG` | `info` | Log filter |
 
-## API surface
+## API
 
-Two APIs over one solver. The complete contract, every endpoint, parameter and
-response, is specified in [`openapi.yml`](openapi.yml).
+The complete contract, every endpoint, parameter and response, is specified in [`openapi.yml`](openapi.yml).
 
 | Path | What |
 |---|---|
-| `/api/v1/...` | The Faint Light API |
-| `/nova/...` | The nova.astrometry.net contract, for NINA and other clients |
-| `/` | Reserved for the web UI; currently a banner |
+| `/api/v1/...` | The Faint Light API (Plate-solving and custom features) |
+| `/nova/...` | The nova.astrometry.net contract, for NINA and other clients (Plate-solving only) |
+| `/` | Reserved for the web UI |
+
+### nova.astrometry.net API
+
+Served under `/nova`, both with and without trailing slashes. Any or no API key works, authentication is bypassed.
+
+Not implemented: `url_upload`, annotated preview images, SIP distortion polynomials (NINA consumes none of these).
 
 ### Faint Light API
 
-`POST /api/v1/solve` solves an image **synchronously** - no polling.
+`POST /api/v1/solve` solves an image **synchronously**, no polling.
 
 ```bash
 curl -X POST http://localhost:7222/api/v1/solve -F file=@image.jpg
 ```
 
 ```json
-{"status": "success", "job": 2, "solved_in_ms": 324,
- "image": {"width": 1024, "height": 1024},
- "calibration": {"ra": 83.8182, "dec": -5.3882, "pixscale": 14.0687, "...": "..."},
- "wcs": {"crval": [83.8182, -5.3882], "crpix": [512.5, 512.5], "cd": [[-0.00391, 0], [0, -0.00391]]},
- "match": {"logodds": 193.2, "nmatch": 41, "index_id": 4111}}
+{
+  "status": "success",
+  "job": 2,
+  "solved_in_ms": 324,
+  "image": {
+    "width": 1024,
+    "height": 1024
+  },
+  "calibration": {
+    "ra": 83.8182,
+    "dec": -5.3882,
+    "pixscale": 14.0687,
+    "...": "..."
+  },
+  "wcs": {
+    "crval": [
+      83.8182,
+      -5.3882
+    ],
+    "crpix": [
+      512.5,
+      512.5
+    ],
+    "cd": [
+      [
+        -0.00391,
+        0
+      ],
+      [
+        0,
+        -0.00391
+      ]
+    ]
+  },
+  "match": {
+    "logodds": 193.2,
+    "nmatch": 41,
+    "index_id": 4111
+  }
+}
 ```
 
 Two flags decide what else it produces:
 
 | Field | Effect |
 |---|---|
-| `fits=1` | Adds `fits_url`: the image as FITS carrying the solution. A FITS upload comes back as it arrived - same pixels, same cards - with only its WCS keywords replaced. Anything else becomes a 32-bit float image HDU |
+| `fits=1` | Adds `fits_url`: the image as FITS carrying the solution. A FITS upload comes back as it arrived, same pixels, same cards, with only its WCS keywords replaced. Anything else becomes a 32-bit float image HDU |
 | `skyview=1` | Adds a `skyview` object with the field's alt/az and `chart_url`. Needs `timestamp`, `latitude` and `longitude` |
 
-Optional solve hints: `scale_low`/`scale_high` (arcsec/px),
-`center_ra`/`center_dec`/`radius` (degrees), `downsample`, `parity`.
+Optional solve hints: `scale_low`/`scale_high` (arcsec/px), `center_ra`/`center_dec`/`radius` (degrees), `downsample`, `parity`.
 
 Both outputs are fetched from the URLs the response reports:
 
@@ -119,21 +187,13 @@ curl -O http://localhost:7222/api/v1/jobs/2/fits
 curl -O http://localhost:7222/api/v1/jobs/2/skyview.svg
 ```
 
-The chart, for [this frame of Messier 22](https://fschuindt.722.network/2026/07/31/messier-22.html):
+The chart below, for [this frame of Messier 22](https://fschuindt.722.network/2026/07/31/messier-22.html):
 
 <img src="assets/messier-22-fov.png" alt="Sky chart for a frame of Messier 22: the whole local sky as an azimuthal-equidistant projection with constellation figures, and the 3.13° by 2.05° field outlined in red next to Sagittarius" width="450">
 
 *A 3.13° × 2.05° frame of Messier 22, placed in the sky over the observer's site at the time of exposure.*
 
 Constellation figures are derived from [d3-celestial](https://github.com/ofrohn/d3-celestial) (BSD-3-Clause).
-
-### nova.astrometry.net API
-
-Served under `/nova`, both with and without trailing slashes. Any or no API key
-works - authentication is bypassed.
-
-Not implemented: `url_upload`, annotated preview images, SIP distortion
-polynomials (NINA consumes none of these).
 
 ## Development
 
@@ -156,11 +216,9 @@ cargo build --release -p fl-server --features tools
 ./target/release/faint-light-tools index-dump ./indexes/index-4110.fits
 ```
 
-A plain build produces one executable, `faint-light`; the GUI and the
-debugging commands are separate `--features` so they stay out of the way.
+A plain build produces one executable, `faint-light`. The GUI and the debugging commands are separate `--features` so they stay out of the way.
 
-The released version is the single line in [`VERSION`](VERSION) - see
-[Releases](docs/Releases.md) for how it is used and how to cut one.
+The released version is the single line in [`VERSION`](VERSION), see [Releases](docs/Releases.md) for how it is used and how to cut one.
 
 Layout:
 

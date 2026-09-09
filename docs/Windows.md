@@ -1,7 +1,7 @@
 # Windows
 
 The server, the debugging commands and the tests build and run natively on
-Windows with the MSVC toolchain — no WSL, no MSYS.
+Windows with the MSVC toolchain - no WSL, no MSYS.
 
 ```powershell
 $env:FAINT_LIGHT_INDEX_DIR = "C:\astrometry\indexes"
@@ -21,7 +21,7 @@ server; declining still leaves it reachable from the same PC. Set
 ## Testing a submission
 
 `scripts/test_submission.sh` needs a shell and `jq`. The PowerShell twin needs
-neither — it uses `curl.exe`, which ships with Windows 10 and later:
+neither - it uses `curl.exe`, which ships with Windows 10 and later:
 
 ```powershell
 .\scripts\test_submission.ps1 path\to\image.jpg localhost:7222
