@@ -1,11 +1,11 @@
 #!/bin/bash
 #
-# Test the skyview endpoint: solve an image, print the JSON result, and
-# fetch (and open) the all-sky chart.
+# Test the sky chart: solve through POST /api/v1/solve with skyview=1,
+# print the JSON result, and fetch (and open) the all-sky chart.
 #
 # Usage: ./test_skyview.sh <image_file> [options]
 #
-#   -s host:port   server                (default: localhost:8000, or $SKYVIEW_SERVER)
+#   -s host:port   server                (default: localhost:7222, or $SKYVIEW_SERVER)
 #   -t timestamp   exposure time, UTC    (default: file mtime; Unix secs or YYYY-MM-DDTHH:MM:SSZ)
 #   -a lat         site latitude, deg    (default: $SKYVIEW_LAT)
 #   -o lon         site longitude, deg   (default: $SKYVIEW_LON, east-positive)
@@ -24,7 +24,7 @@ FILE="${1:-}"
 [ "$FILE" = "-h" ] || [ "$FILE" = "--help" ] && usage
 shift
 
-SERVER="${SKYVIEW_SERVER:-localhost:8000}"
+SERVER="${SKYVIEW_SERVER:-localhost:7222}"
 LAT="${SKYVIEW_LAT:-}"
 LON="${SKYVIEW_LON:-}"
 TIMESTAMP=""
@@ -70,8 +70,9 @@ fi
 BASE_URL="http://${SERVER}"
 
 echo "--- Skyview: $(basename "$FILE") @ ${TIMESTAMP}, lat ${LAT}°, lon ${LON}° → ${SERVER} ---"
-RESP=$(curl -s --fail-with-body -X POST "${BASE_URL}/api/skyview" \
+RESP=$(curl -s --fail-with-body -X POST "${BASE_URL}/api/v1/solve" \
     -F "file=@${FILE}" \
+    -F "skyview=1" \
     -F "timestamp=${TIMESTAMP}" \
     -F "latitude=${LAT}" \
     -F "longitude=${LON}") || {
@@ -86,12 +87,12 @@ RESP=$(curl -s --fail-with-body -X POST "${BASE_URL}/api/skyview" \
 
 echo "$RESP" | jq .
 
-if [ "$(echo "$RESP" | jq -r '.field.above_horizon')" = "false" ]; then
+if [ "$(echo "$RESP" | jq -r '.skyview.above_horizon')" = "false" ]; then
     echo ""
     echo "Warning: solved field is below the horizon — check timestamp and coordinates."
 fi
 
-CHART_URL=$(echo "$RESP" | jq -r '.sky_chart_url')
+CHART_URL=$(echo "$RESP" | jq -r '.skyview.chart_url')
 curl -s "${BASE_URL}${CHART_URL}" -o "$OUT"
 echo ""
 echo "Sky chart: ${BASE_URL}${CHART_URL}"

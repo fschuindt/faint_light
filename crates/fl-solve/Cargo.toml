@@ -6,9 +6,9 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+fl-fits = { workspace = true }
 fl-index = { workspace = true }
 fl-extract = { workspace = true }
 rayon = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
-tracing-core = "0.1"

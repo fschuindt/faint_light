@@ -2,8 +2,8 @@
 #
 # Test astrometry.net plate solving via the JSON API.
 #
-# Usage: ./test_submission.sh <image_file> <host:port>
-# Example: ./test_submission.sh ./solver/sample.png localhost:8000
+# Usage: ./test_submission.sh <image_file> <host:port>   (the nova API lives at /nova)
+# Example: ./test_submission.sh ./solver/sample.png localhost:7222
 
 set -euo pipefail
 
@@ -15,7 +15,7 @@ TIMEOUT=600  # give up after 10 minutes
 
 if [ -z "$FILE" ] || [ -z "$SERVER" ]; then
     echo "Usage: $0 <image_file> <host:port>"
-    echo "Example: $0 ./solver/sample.png localhost:8000"
+    echo "Example: $0 ./solver/sample.png localhost:7222"
     exit 1
 fi
 
@@ -29,7 +29,7 @@ if ! command -v jq &>/dev/null; then
     exit 1
 fi
 
-BASE_URL="http://${SERVER}"
+BASE_URL="http://${SERVER}/nova"
 SECONDS=0
 
 # ── Login ────────────────────────────────────────────────────────────

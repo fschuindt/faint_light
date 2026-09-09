@@ -437,7 +437,9 @@ def main():
                         do_restart = False
                     else:
                         do_restart = (n % 16 == 0)
-                    res = solve_nova("localhost:8100", "faint_light", "x", group, j,
+                    # faint_light serves the nova contract under /nova; stock
+                    # astrometry.net serves it at the root.
+                    res = solve_nova("localhost:8100/nova", "faint_light", "x", group, j,
                                      restart=do_restart)
                 elif cand == "anet_nova":
                     res = solve_nova("localhost:8000", CONTAINERS[cand], "1jcrmadfnxngxscd",

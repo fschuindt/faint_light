@@ -186,6 +186,9 @@ class DirectClient:
 
 
 class NovaClient:
+    """nova-API client. `host` may carry a path, and faint_light needs one:
+    its nova-compatible API is served under /nova."""
+
     def __init__(self, host):
         self.base = "http://%s" % host
         self.session = None

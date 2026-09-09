@@ -1,6 +1,6 @@
 [package]
 name = "fl-server"
-description = "nova.astrometry.net-compatible HTTP API server"
+description = "Plate-solving HTTP server: the Faint Light API plus a nova.astrometry.net-compatible one"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -9,15 +9,56 @@ license.workspace = true
 name = "faint-light"
 path = "src/main.rs"
 
+# Built only when the `gui` feature is on; see README, "Desktop GUI".
+[[bin]]
+name = "faint-light-gui"
+path = "src/bin/gui.rs"
+required-features = ["gui"]
+
+# Development commands, off by default so a normal build makes one binary.
+[[bin]]
+name = "faint-light-tools"
+path = "src/bin/tools.rs"
+required-features = ["tools"]
+
+[features]
+default = []
+# The optional FLTK desktop front end. Compiles FLTK from source, so it needs
+# CMake >= 3.28 and a C++ toolchain.
+gui = ["dep:fltk"]
+# The same GUI linked against prebuilt FLTK binaries — no CMake or C++
+# compiler required, but only for targets fltk-rs publishes builds for.
+gui-bundled = ["gui", "fltk?/fltk-bundled"]
+# Solver/index debugging commands as one `faint-light-tools` binary.
+tools = []
+
 [dependencies]
+fl-fits = { workspace = true }
 fl-solve = { workspace = true }
 fl-sky = { workspace = true }
 fl-extract = { workspace = true }
 fl-index = { workspace = true }
 axum = { version = "0.8", features = ["multipart"] }
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "sync"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha1_smol = "1"
 tracing = { workspace = true }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+fltk = { version = "1.5", optional = true }
+
+# "Start with Windows" writes an HKCU Run entry; the notification-area
+# icon is raw Win32. Both are Windows-only, and windows-sys is already in
+# the tree via tokio.
+[target.'cfg(windows)'.dependencies]
+winreg = "0.55"
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Gdi",
+    "Win32_System_LibraryLoader",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
+] }
+
+[target.'cfg(windows)'.build-dependencies]
+winresource = "0.1"

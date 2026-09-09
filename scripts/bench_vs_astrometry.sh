@@ -2,11 +2,15 @@
 # Head-to-head: submit the same image(s) to two nova-API servers and compare
 # wall time and calibration.
 #
-# usage: ./scripts/bench_vs_astrometry.sh <faint_light_host:port> <astrometry_host:port> <image> [image...]
+# usage: ./scripts/bench_vs_astrometry.sh <faint_light_host:port/nova> <astrometry_host:port> <image> [image...]
+#
+# Both hosts are addressed as "<host:port><path>", so faint_light takes a
+# /nova suffix (its nova-compatible API moved there) while a stock
+# astrometry.net server takes none.
 set -euo pipefail
 
 if [ $# -lt 3 ]; then
-    echo "usage: $0 <faint_light_host:port> <astrometry_host:port> <image> [image...]" >&2
+    echo "usage: $0 <faint_light_host:port/nova> <astrometry_host:port> <image> [image...]" >&2
     exit 2
 fi
 

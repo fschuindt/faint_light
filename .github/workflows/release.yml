@@ -1,0 +1,214 @@
+name: Release binaries
+
+# Tag a commit and the binaries build themselves; publishing the draft that
+# comes out the other end stays a manual step.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+  # A rustc warning fails the build, so a release can never carry one.
+  RUSTFLAGS: -D warnings
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Native runners throughout: FLTK is a CMake/C++ project, and
+          # cross-compiling it is far more trouble than a second runner.
+          - name: linux-x64-headless
+            runner: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            features: ""
+            binary: faint-light
+          - name: linux-x64-gui
+            runner: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            features: gui
+            binary: faint-light-gui
+          - name: linux-arm64-headless
+            runner: ubuntu-22.04-arm
+            target: aarch64-unknown-linux-gnu
+            features: ""
+            binary: faint-light
+          - name: linux-arm64-gui
+            runner: ubuntu-22.04-arm
+            target: aarch64-unknown-linux-gnu
+            features: gui
+            binary: faint-light-gui
+          - name: windows-x64-headless
+            runner: windows-2022
+            target: x86_64-pc-windows-msvc
+            features: ""
+            binary: faint-light.exe
+          - name: windows-x64-gui
+            runner: windows-2022
+            target: x86_64-pc-windows-msvc
+            features: gui
+            binary: faint-light-gui.exe
+          - name: windows-arm64-headless
+            runner: windows-11-arm
+            target: aarch64-pc-windows-msvc
+            features: ""
+            binary: faint-light.exe
+          - name: windows-arm64-gui
+            runner: windows-11-arm
+            target: aarch64-pc-windows-msvc
+            features: gui
+            binary: faint-light-gui.exe
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install the toolchain
+        run: rustup toolchain install stable --profile minimal --target ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.name }}
+
+      - name: GUI build dependencies (Linux)
+        if: runner.os == 'Linux' && matrix.features == 'gui'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libx11-dev libxext-dev libxft-dev libxinerama-dev libxcursor-dev \
+            libxrender-dev libxfixes-dev libpango1.0-dev libgl1-mesa-dev libglu1-mesa-dev
+          bash .github/scripts/install-cmake.sh
+
+      - name: Check CMake (Windows)
+        if: runner.os == 'Windows' && matrix.features == 'gui'
+        shell: pwsh
+        run: |
+          $v = (cmake --version | Select-Object -First 1) -replace '[^0-9.]', ''
+          Write-Host "cmake $v"
+          $parts = $v.Split('.')
+          if ([int]$parts[0] -lt 3 -or ([int]$parts[0] -eq 3 -and [int]$parts[1] -lt 28)) {
+            throw "FLTK needs CMake 3.28 or newer; this runner has $v"
+          }
+
+      - name: Build
+        shell: bash
+        run: |
+          if [ -n "${{ matrix.features }}" ]; then
+            cargo build --release -p fl-server --target ${{ matrix.target }} --features ${{ matrix.features }}
+          else
+            cargo build --release -p fl-server --target ${{ matrix.target }}
+          fi
+
+      - name: Package
+        shell: bash
+        run: |
+          version=$(cat VERSION)
+          stage="faint-light-${version}-${{ matrix.name }}"
+          mkdir -p "dist/${stage}"
+          cp "target/${{ matrix.target }}/release/${{ matrix.binary }}" "dist/${stage}/"
+          cp LICENSE VERSION README.md "dist/${stage}/"
+          cd dist
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            7z a -tzip "${stage}.zip" "${stage}" >/dev/null
+          else
+            tar -czf "${stage}.tar.gz" "${stage}"
+          fi
+          ls -l
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          path: |
+            dist/*.tar.gz
+            dist/*.zip
+          if-no-files-found: error
+
+  verify:
+    name: verify ${{ matrix.name }}
+    needs: build
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: linux-x64-headless,     runner: ubuntu-22.04,     kind: headless }
+          - { name: linux-x64-gui,          runner: ubuntu-22.04,     kind: gui }
+          - { name: linux-arm64-headless,   runner: ubuntu-22.04-arm, kind: headless }
+          - { name: linux-arm64-gui,        runner: ubuntu-22.04-arm, kind: gui }
+          - { name: windows-x64-headless,   runner: windows-2022,     kind: headless }
+          - { name: windows-x64-gui,        runner: windows-2022,     kind: gui }
+          - { name: windows-arm64-headless, runner: windows-11-arm,   kind: headless }
+          - { name: windows-arm64-gui,      runner: windows-11-arm,   kind: gui }
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          path: dist
+
+      - name: Unpack
+        shell: bash
+        run: |
+          cd dist
+          for f in *.tar.gz; do [ -e "$f" ] && tar -xzf "$f"; done
+          for f in *.zip; do [ -e "$f" ] && unzip -q "$f"; done
+          find . -maxdepth 2 -type f -name 'faint-light*' -print
+
+      # An X server, so the GUI has somewhere to open its window.
+      - name: Xvfb
+        if: runner.os == 'Linux' && matrix.kind == 'gui'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends xvfb libxft2 libxinerama1 libxcursor1
+
+      - name: Run it
+        shell: bash
+        env:
+          KIND: ${{ matrix.kind }}
+          OS: ${{ runner.os }}
+        run: bash .github/scripts/verify-binary.sh "dist"
+
+  draft-release:
+    name: draft release
+    needs: verify
+    runs-on: ubuntu-22.04
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Collect the archives
+        run: |
+          mkdir -p release
+          find artifacts -type f \( -name '*.tar.gz' -o -name '*.zip' \) \
+            -exec cp {} release/ \;
+          (cd release && sha256sum * > SHA256SUMS)
+          ls -l release
+
+      # A draft, so publishing stays a decision rather than a side effect of
+      # pushing a tag.
+      - name: Draft the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" release/* --clobber
+          else
+            gh release create "$tag" release/* \
+              --draft \
+              --title "Faint Light $(cat VERSION)" \
+              --notes "Built from \`$tag\`. Binaries are per OS, architecture and \
+          flavour: \`headless\` is the server on its own, \`gui\` is the desktop \
+          window with the server embedded. Checksums in SHA256SUMS."
+          fi

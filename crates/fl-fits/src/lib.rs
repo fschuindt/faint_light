@@ -9,6 +9,7 @@
 mod header;
 mod hdu;
 pub mod image;
+pub mod write;
 
 pub use header::{Header, Value};
 pub use hdu::{Fits, Hdu};

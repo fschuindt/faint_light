@@ -3,18 +3,19 @@ jsonSchemaDialect: https://json-schema.org/draft/2020-12/schema
 
 info:
   title: Faint Light
-  version: 0.1.0
+  version: 0.1.0a
   summary: Fast, self-hosted plate solving with a nova.astrometry.net-compatible API.
   description: |
     Faint Light implements the HTTP contract of nova.astrometry.net so that
     imaging software such as NINA can use it as a drop-in local replacement,
-    plus one extension of its own (`/api/skyview`).
+    Its own API lives at the root; the compatibility layer is served
+    under `/nova`.
 
     Conventions shared by every operation:
 
     * **No authentication.** `/api/login` accepts any API key, or none, and
       always succeeds. The session token it returns is never checked.
-    * **Trailing slashes are optional.** Every `/api/...` and `/wcs_file/...`
+    * **Trailing slashes are optional.** Every `/nova/...`
       path is served both with and without a trailing slash; only the
       slash-less form is listed here.
     * **Errors** are JSON: `{"status": "error", "errormessage": "..."}` with
@@ -36,7 +37,7 @@ externalDocs:
   url: https://nightsky.observer/faint-light/
 
 servers:
-  - url: http://localhost:8000
+  - url: http://localhost:7222
     description: Default port (`FAINT_LIGHT_PORT`)
 
 tags:
@@ -44,8 +45,8 @@ tags:
     description: The nova.astrometry.net contract, as consumed by NINA and the astrometry.net client.
   - name: results
     description: Solved calibrations and derived files.
-  - name: skyview
-    description: Faint Light extension. Synchronous solve plus an all-sky chart of where the image was taken.
+  - name: solve
+    description: The Faint Light API. One endpoint solves; flags add a FITS and an all-sky chart.
   - name: stubs
     description: Endpoints of the nova contract that Faint Light does not implement. Present so clients get a clean error.
 
@@ -54,8 +55,8 @@ paths:
     get:
       operationId: index
       summary: Server banner
-      description: A one-line plain-text banner with the version. Handy as a liveness check.
-      tags: [nova]
+      description: A short plain-text banner listing the two APIs. Handy as a liveness check. The web UI will live here.
+      tags: [solve]
       responses:
         "200":
           description: Banner
@@ -63,9 +64,165 @@ paths:
             text/plain:
               schema:
                 type: string
-                examples: ["faint_light 0.1.0 — nova.astrometry.net-compatible plate solving server\n"]
+                examples: ["faint_light 0.1.0"]
 
-  /api/login:
+  /api/v1/solve:
+    post:
+      operationId: solve
+      summary: Solve an image
+      description: |
+        Solves in the request cycle — no polling. Two flags decide what else
+        it produces; both extras are reported as URLs so one response can
+        offer both and a browser can render the chart directly.
+
+        `fits=true` builds the solved image as FITS. A FITS upload comes back
+        as it arrived — same pixels, same extensions, same instrument cards —
+        with its celestial WCS keywords replaced; every keyword of every
+        convention is cleared first (`CDELT`, `CROTA`, `PC`, the SIP
+        `A_i_j`/`B_i_j` polynomials), so a stale distortion term cannot be
+        read alongside the new CD matrix. Any other format becomes a new
+        `BITPIX = -32` image HDU holding the greyscale the solver measured.
+
+        `skyview=true` places the field in the observer's sky and renders an
+        SVG all-sky chart: zenith centred, horizon at the rim, North up, East
+        left, constellation figures, and the image footprint outlined in red.
+        It needs `timestamp`, `latitude` and `longitude`.
+
+        Blocks for up to `FAINT_LIGHT_SOLVE_TIMEOUT` (default 300 s) plus 30 s
+        of queueing grace. Outputs are cached for retrieval within a 256 MiB
+        budget, oldest evicted first.
+      tags: [solve]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  contentEncoding: binary
+                  description: FITS, JPEG, PNG or TIFF.
+                fits:
+                  $ref: "#/components/schemas/Flag"
+                skyview:
+                  $ref: "#/components/schemas/Flag"
+                timestamp:
+                  type: string
+                  description: Exposure time, UTC. Unix seconds or `YYYY-MM-DDTHH:MM:SS[.fff]Z`. Required with `skyview`.
+                  examples: ["2026-01-15T02:30:00Z", "1768444200"]
+                latitude:
+                  type: string
+                  description: Site latitude, degrees north-positive. Required with `skyview`.
+                  examples: ["40.7128"]
+                longitude:
+                  type: string
+                  description: Site longitude, degrees east-positive. Required with `skyview`.
+                  examples: ["-74.0060"]
+                scale_low:
+                  type: string
+                  description: Lower bound on the pixel scale, arcsec/px.
+                scale_high:
+                  type: string
+                  description: Upper bound on the pixel scale, arcsec/px.
+                center_ra:
+                  type: string
+                  description: Position hint, degrees.
+                center_dec:
+                  type: string
+                  description: Position hint, degrees.
+                radius:
+                  type: string
+                  description: Search radius around the position hint, degrees.
+                downsample:
+                  type: string
+                  description: Downsample factor for star extraction. Chosen automatically when absent.
+                parity:
+                  type: string
+                  enum: [normal, flip, both]
+                  default: both
+            encoding:
+              file:
+                contentType: image/fits, image/jpeg, image/png, image/tiff, application/octet-stream
+      responses:
+        "200":
+          description: Solved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SolveResponse"
+        "400":
+          description: Missing or empty `file`, or an unusable option
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SolveError"
+        "422":
+          description: The solver could not solve the image, or the FITS could not be written
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SolveError"
+        "503":
+          description: Solve queue full
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "504":
+          description: The solve did not finish within the budget
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/v1/jobs/{id}/fits:
+    get:
+      operationId: solvedFits
+      summary: The solved FITS for a job
+      description: Produced by `POST /api/v1/solve` with `fits=true`. Served as an attachment named after the upload.
+      tags: [solve]
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        "200":
+          description: The FITS file
+          content:
+            application/fits:
+              schema:
+                type: string
+                contentEncoding: binary
+        "404":
+          description: The job produced no FITS, or it has been evicted from the cache
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SolveError"
+
+  /api/v1/jobs/{id}/skyview.svg:
+    get:
+      operationId: skyviewChart
+      summary: The all-sky chart for a job
+      description: Produced by `POST /api/v1/solve` with `skyview=true`.
+      tags: [solve]
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        "200":
+          description: SVG chart
+          content:
+            image/svg+xml:
+              schema:
+                type: string
+        "404":
+          description: The job produced no chart, or it has been evicted from the cache
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SolveError"
+
+  /nova/api/login:
     post:
       operationId: login
       summary: Obtain a session
@@ -96,7 +253,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/LoginResponse"
 
-  /api/upload:
+  /nova/api/upload:
     post:
       operationId: upload
       summary: Submit an image for solving
@@ -154,7 +311,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
-  /api/url_upload:
+  /nova/api/url_upload:
     post:
       operationId: urlUpload
       summary: Not supported
@@ -168,7 +325,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
-  /api/submissions/{id}:
+  /nova/api/submissions/{id}:
     get:
       operationId: submissionStatus
       summary: Submission status
@@ -190,7 +347,7 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
-  /api/jobs/{id}:
+  /nova/api/jobs/{id}:
     get:
       operationId: jobStatus
       summary: Job status
@@ -208,7 +365,7 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
-  /api/jobs/{id}/calibration:
+  /nova/api/jobs/{id}/calibration:
     get:
       operationId: jobCalibration
       summary: Solved calibration
@@ -234,7 +391,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
-  /api/jobs/{id}/info:
+  /nova/api/jobs/{id}/info:
     get:
       operationId: jobInfo
       summary: Job summary
@@ -255,7 +412,7 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
-  /api/jobs/{id}/objects_in_field:
+  /nova/api/jobs/{id}/objects_in_field:
     get:
       operationId: objectsInField
       summary: Objects in field (always empty)
@@ -277,7 +434,7 @@ paths:
                     items: { type: string }
                     maxItems: 0
 
-  /api/jobs/{id}/machine_tags:
+  /nova/api/jobs/{id}/machine_tags:
     get:
       operationId: machineTags
       summary: Machine tags (always empty)
@@ -293,7 +450,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/TagList"
 
-  /api/jobs/{id}/tags:
+  /nova/api/jobs/{id}/tags:
     get:
       operationId: tags
       summary: Tags (always empty)
@@ -309,7 +466,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/TagList"
 
-  /api/jobs/{id}/annotations:
+  /nova/api/jobs/{id}/annotations:
     get:
       operationId: annotations
       summary: Annotations (always empty)
@@ -331,7 +488,7 @@ paths:
                     items: { type: object }
                     maxItems: 0
 
-  /wcs_file/{id}:
+  /nova/wcs_file/{id}:
     get:
       operationId: wcsFile
       summary: WCS as a FITS header
@@ -358,116 +515,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
-  /api/skyview:
-    post:
-      operationId: skyview
-      summary: Solve synchronously and chart the field on the local sky
-      description: |
-        Faint Light extension. Solves the image in the request cycle (no
-        polling), then places the solved field in the observer's sky at the
-        time of exposure and renders an all-sky chart.
-
-        The response carries the calibration, the observer record, the
-        field's altitude and azimuth, and `sky_chart_url`, which serves an
-        SVG azimuthal-equidistant chart: zenith at the centre, horizon at
-        the rim, North up, East left, with constellation stick figures and
-        labels, a low-opacity alt/az grid, and the image footprint outlined
-        in red.
-
-        The call blocks for up to the per-job solve budget
-        (`FAINT_LIGHT_SOLVE_TIMEOUT`, default 300 s) plus 30 s of queueing
-        grace. A field below the horizon is still returned (with
-        `above_horizon: false`) and logged as a warning, since it usually
-        means a wrong timestamp or site.
-      tags: [skyview]
-      requestBody:
-        required: true
-        content:
-          multipart/form-data:
-            schema:
-              type: object
-              required: [file, timestamp, latitude, longitude]
-              properties:
-                file:
-                  type: string
-                  contentEncoding: binary
-                  description: The image to solve, same formats as `/api/upload`.
-                timestamp:
-                  type: string
-                  description: |
-                    Exposure time in UTC. Either Unix seconds (integer or
-                    decimal) or `YYYY-MM-DDTHH:MM:SS[.fff]Z`.
-                  examples: ["2026-07-13T02:10:00Z", "1783994400"]
-                latitude:
-                  type: string
-                  description: Site latitude in degrees, north positive, -90 to 90. `lat` is accepted as an alias.
-                  examples: ["40.7128"]
-                longitude:
-                  type: string
-                  description: Site longitude in degrees, east positive, -180 to 360. `lon` is accepted as an alias.
-                  examples: ["-74.0060"]
-                request-json:
-                  $ref: "#/components/schemas/UploadRequestJson"
-            encoding:
-              file:
-                contentType: image/fits, image/jpeg, image/png, image/tiff, application/octet-stream
-              request-json:
-                contentType: application/json
-      responses:
-        "200":
-          description: Solved and charted
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/SkyviewResponse"
-        "400":
-          description: Missing or invalid `file`, `timestamp`, `latitude` or `longitude`
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-        "422":
-          description: The solver could not solve the image
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/SkyviewFailure"
-        "503":
-          description: Solve queue full
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-        "504":
-          description: The solve did not finish within the budget
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-
-  /skyview/{id}/chart.svg:
-    get:
-      operationId: skyviewChart
-      summary: All-sky chart for a skyview job
-      description: The SVG rendered by `POST /api/skyview`, addressed by the `job` id it returned. This path has no trailing-slash variant.
-      tags: [skyview]
-      parameters:
-        - $ref: "#/components/parameters/id"
-      responses:
-        "200":
-          description: SVG chart
-          content:
-            image/svg+xml:
-              schema:
-                type: string
-        "404":
-          description: No chart for this job (only skyview jobs have one)
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-
-  /new_fits_file/{id}:
+  /nova/new_fits_file/{id}:
     get:
       operationId: newFitsFile
       summary: Not available
@@ -479,7 +527,7 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
-  /annotated_display/{id}:
+  /nova/annotated_display/{id}:
     get:
       operationId: annotatedDisplay
       summary: Not available
@@ -816,28 +864,128 @@ components:
           items: { type: string }
           maxItems: 0
 
-    SkyviewResponse:
+    Flag:
+      type: string
+      description: A boolean form field. Absent is false; `1`, `true`, `yes`, `on` or an empty value (as an HTML checkbox posts) is true.
+      examples: ["1", "true"]
+
+    SolveResponse:
       type: object
-      required: [status, subid, job, calibration, observer, field, sky_chart_url]
+      required: [status, job, solved_in_ms, image, calibration, wcs, match]
       properties:
         status:
           const: success
-        subid:
-          type: integer
-          format: int64
         job:
           type: integer
           format: int64
-          description: Job id. Also valid for `/api/jobs/{id}/...` and `/wcs_file/{id}`.
+          description: Job id, and the `{id}` of the artifact paths below.
+        solved_in_ms:
+          type: integer
+          description: Wall time for the whole request, milliseconds.
+        image:
+          type: object
+          required: [width, height]
+          properties:
+            width:
+              type: number
+            height:
+              type: number
         calibration:
           $ref: "#/components/schemas/Calibration"
+        wcs:
+          type: object
+          description: The fitted TAN WCS, in FITS conventions (`crpix` 1-based).
+          required: [crval, crpix, cd]
+          properties:
+            crval:
+              type: array
+              items: { type: number }
+              minItems: 2
+              maxItems: 2
+            crpix:
+              type: array
+              items: { type: number }
+              minItems: 2
+              maxItems: 2
+            cd:
+              type: array
+              description: Degrees per pixel, row-major.
+              items:
+                type: array
+                items: { type: number }
+                minItems: 2
+                maxItems: 2
+              minItems: 2
+              maxItems: 2
+        match:
+          type: object
+          required: [logodds, nmatch, index_id]
+          properties:
+            logodds:
+              type: number
+              description: Log-odds the verifier assigned to the accepted solution.
+            nmatch:
+              type: integer
+              description: Index stars matched to extracted sources.
+            index_id:
+              type: integer
+              description: Which astrometry.net index solved it, e.g. 4111.
+        fits_url:
+          type: string
+          description: Present with `fits=true`. Path of the solved FITS.
+          pattern: "^/api/v1/jobs/\\d+/fits$"
+        fits_filename:
+          type: string
+          description: Present with `fits=true`. Suggested download name.
+          examples: ["m42_light.solved.fits"]
+        skyview:
+          $ref: "#/components/schemas/SkyviewResult"
+
+    SkyviewResult:
+      type: object
+      description: Present with `skyview=true`.
+      required: [chart_url, alt, az, above_horizon, width_deg, height_deg, corners_radec, observer]
+      properties:
+        chart_url:
+          type: string
+          pattern: "^/api/v1/jobs/\\d+/skyview\\.svg$"
+        alt:
+          type: number
+          description: Altitude of the field centre, degrees. Negative when below the horizon.
+          minimum: -90
+          maximum: 90
+        az:
+          type: number
+          description: Azimuth of the field centre, degrees, north through east.
+          minimum: 0
+          maximum: 360
+        above_horizon:
+          type: boolean
+        width_deg:
+          type: number
+        height_deg:
+          type: number
+        corners_radec:
+          type: array
+          description: RA/Dec of the four image corners in border order, starting at pixel (0, 0).
+          minItems: 4
+          maxItems: 4
+          items:
+            type: array
+            prefixItems:
+              - type: number
+                description: RA, degrees
+              - type: number
+                description: Dec, degrees
+            minItems: 2
+            maxItems: 2
         observer:
           type: object
           required: [timestamp_utc, unix, latitude, longitude, lst_deg]
           properties:
             timestamp_utc:
               type: string
-              description: The parsed exposure time, ISO 8601 UTC.
+              description: The parsed exposure time, UTC.
             unix:
               type: number
               description: The same instant as Unix seconds.
@@ -850,59 +998,20 @@ components:
               description: Local sidereal time at the site and instant, degrees.
               minimum: 0
               maximum: 360
-        field:
-          type: object
-          required: [alt, az, above_horizon, width_deg, height_deg, orientation, parity, corners_radec]
-          properties:
-            alt:
-              type: number
-              description: Altitude of the field centre, degrees. Negative when below the horizon.
-              minimum: -90
-              maximum: 90
-            az:
-              type: number
-              description: Azimuth of the field centre, degrees, north through east.
-              minimum: 0
-              maximum: 360
-            above_horizon:
-              type: boolean
-            width_deg:
-              type: number
-            height_deg:
-              type: number
-            orientation:
-              type: number
-              description: Same as `calibration.orientation`.
-            parity:
-              type: number
-              enum: [1, -1]
-            corners_radec:
-              type: array
-              description: RA/Dec of the four image corners in border order, starting at pixel (0, 0).
-              minItems: 4
-              maxItems: 4
-              items:
-                type: array
-                prefixItems:
-                  - type: number
-                    description: RA, degrees
-                  - type: number
-                    description: Dec, degrees
-                minItems: 2
-                maxItems: 2
-        sky_chart_url:
-          type: string
-          description: Path of the rendered chart, `/skyview/{job}/chart.svg`, relative to the server root.
-          pattern: "^/skyview/\\d+/chart\\.svg$"
 
-    SkyviewFailure:
+    SolveError:
       type: object
-      required: [status, job, errormessage]
+      description: The Faint Light API's error shape. The nova API under `/nova` uses `errormessage` instead.
+      required: [status, error]
       properties:
         status:
-          const: failure
+          const: error
+        error:
+          type: string
         job:
           type: integer
           format: int64
-        errormessage:
-          type: string
+          description: Present when the failure happened after a job was created.
+      examples:
+        - status: error
+          error: no solution found

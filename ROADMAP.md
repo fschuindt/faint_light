@@ -13,14 +13,14 @@
 - Charts for the regression suite, to compare runs
 
 ## Server
+- Web UI at `/`, over the `/api/v1` API
+- Grow the `/api/v1` surface beyond `solve`
 - Test with other clients: Sequence Generator Pro, APT, KStars/Ekos, AstroImageJ
-- Synchronous `/solve` endpoint, no polling (Should provide even faster results)
 - Keep warm-start state across restarts
 - Document which index series to use per field size
 
 ## Other
-- Simple optional multi-platform GUI
-- Windows prebuilt binaries
-- Linux distributions
-- ARM distributions
+- Publish the container image alongside the binaries
+- Linux tray icon (StatusNotifierItem), so minimise-to-tray is not Windows-only
+- Linux distribution packages
 - Optimizations

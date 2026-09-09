@@ -154,7 +154,7 @@ class LocalServer(BaseServer):
         self.proc = subprocess.Popen([BIN], env=env,
                                      stdout=subprocess.DEVNULL,
                                      stderr=subprocess.DEVNULL)
-        self.base = "http://127.0.0.1:%d" % PORT
+        self.base = "http://127.0.0.1:%d/nova" % PORT
         self.wait_ready()
 
     def check_alive(self):
@@ -205,7 +205,7 @@ class ContainerServer(BaseServer):
                 break
         else:
             sys.exit("cannot find cgroup v2 dir for container %s" % CONTAINER)
-        self.base = "http://%s" % HOST
+        self.base = "http://%s/nova" % HOST
         self.wait_ready()
         time.sleep(1.0)  # let index prefetch settle
 

@@ -10,6 +10,11 @@ pub struct Hdu {
 }
 
 impl Hdu {
+    /// Byte offset of this HDU's first header card.
+    pub fn header_offset(&self) -> usize {
+        self.data_offset - self.header.nblocks * BLOCK
+    }
+
     /// For BINTABLE HDUs: (row_bytes, nrows).
     pub fn table_shape(&self) -> (usize, usize) {
         let w = self.header.get_i64("NAXIS1").unwrap_or(0).max(0) as usize;

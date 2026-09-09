@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
 use std::time::SystemTime;
@@ -26,6 +26,22 @@ pub struct Submission {
     pub received: SystemTime,
 }
 
+/// A file a solve produced and a client may come back for: the solved FITS,
+/// the sky chart.
+#[derive(Debug, Clone)]
+pub struct Artifact {
+    pub content_type: &'static str,
+    /// Download name, for Content-Disposition.
+    pub filename: String,
+    pub bytes: Arc<Vec<u8>>,
+}
+
+/// How much of the artifact cache we keep. Solved FITS files are as large as
+/// the images that produced them, so this is a byte budget rather than a
+/// count: clients fetch them moments after solving, and an unbounded map
+/// would be a memory leak with a slow fuse.
+const ARTIFACT_BUDGET: usize = 256 << 20;
+
 /// In-memory job store. Jobs are ephemeral — a restart loses history, which
 /// is fine for a home plate-solving box (clients poll within minutes).
 #[derive(Default)]
@@ -33,8 +49,14 @@ pub struct Store {
     next: AtomicU64,
     subs: RwLock<HashMap<u64, Submission>>,
     jobs: RwLock<HashMap<u64, Job>>,
-    /// Rendered sky-chart SVGs by job id (skyview endpoint).
-    charts: RwLock<HashMap<u64, Arc<String>>>,
+    artifacts: RwLock<Artifacts>,
+}
+
+#[derive(Default)]
+struct Artifacts {
+    /// Insertion-ordered so the oldest is the first evicted.
+    items: VecDeque<((u64, &'static str), Artifact)>,
+    bytes: usize,
 }
 
 impl Store {
@@ -72,12 +94,29 @@ impl Store {
         self.jobs.read().unwrap().get(&id).cloned()
     }
 
-    pub fn put_chart(&self, job_id: u64, svg: String) {
-        self.charts.write().unwrap().insert(job_id, Arc::new(svg));
+    /// Store a job's output file, evicting the oldest ones once the cache
+    /// exceeds its byte budget.
+    pub fn put_artifact(&self, job: u64, kind: &'static str, artifact: Artifact) {
+        let mut a = self.artifacts.write().unwrap();
+        // Re-solving a job replaces its output rather than stacking another.
+        a.items.retain(|((j, k), _)| (*j, *k) != (job, kind));
+        a.items.push_back(((job, kind), artifact));
+        a.bytes = a.items.iter().map(|(_, art)| art.bytes.len()).sum();
+        while a.bytes > ARTIFACT_BUDGET && a.items.len() > 1 {
+            if let Some((_, dropped)) = a.items.pop_front() {
+                a.bytes = a.bytes.saturating_sub(dropped.bytes.len());
+            }
+        }
     }
 
-    pub fn chart(&self, job_id: u64) -> Option<Arc<String>> {
-        self.charts.read().unwrap().get(&job_id).cloned()
+    pub fn artifact(&self, job: u64, kind: &str) -> Option<Artifact> {
+        self.artifacts
+            .read()
+            .unwrap()
+            .items
+            .iter()
+            .find(|((j, k), _)| *j == job && *k == kind)
+            .map(|(_, art)| art.clone())
     }
 
     pub fn finish(&self, job_id: u64, status: JobStatus) {
@@ -90,9 +129,7 @@ impl Store {
 
 /// nova-style timestamp: "YYYY-MM-DD HH:MM:SS.ffffff".
 pub fn format_time(t: SystemTime) -> String {
-    let d = t
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .unwrap_or_default();
+    let d = t.duration_since(SystemTime::UNIX_EPOCH).unwrap_or_default();
     let secs = d.as_secs() as i64;
     let micros = d.subsec_micros();
     let (days, rem) = (secs.div_euclid(86400), secs.rem_euclid(86400));
@@ -132,5 +169,47 @@ mod tests {
         s.finish(job, JobStatus::Failure("x".into()));
         assert!(matches!(s.job(job).unwrap().status, JobStatus::Failure(_)));
         assert!(s.job(job).unwrap().finished.is_some());
+    }
+
+    fn artifact(len: usize) -> Artifact {
+        Artifact {
+            content_type: "application/fits",
+            filename: "x.fits".into(),
+            bytes: Arc::new(vec![0u8; len]),
+        }
+    }
+
+    #[test]
+    fn artifacts_are_retrievable_and_replaceable() {
+        let s = Store::default();
+        s.put_artifact(1, "fits", artifact(10));
+        s.put_artifact(1, "skyview", artifact(20));
+        assert_eq!(s.artifact(1, "fits").unwrap().bytes.len(), 10);
+        assert_eq!(s.artifact(1, "skyview").unwrap().bytes.len(), 20);
+        assert!(s.artifact(2, "fits").is_none());
+        // Re-solving the same job replaces rather than accumulates.
+        s.put_artifact(1, "fits", artifact(30));
+        assert_eq!(s.artifact(1, "fits").unwrap().bytes.len(), 30);
+        assert_eq!(s.artifacts.read().unwrap().items.len(), 2);
+    }
+
+    #[test]
+    fn the_oldest_artifacts_are_evicted_past_the_budget() {
+        let s = Store::default();
+        let big = ARTIFACT_BUDGET / 2 + 1;
+        for job in 1..=3 {
+            s.put_artifact(job, "fits", artifact(big));
+        }
+        assert!(s.artifact(1, "fits").is_none(), "oldest should be gone");
+        assert!(s.artifact(3, "fits").is_some(), "newest must survive");
+        assert!(s.artifacts.read().unwrap().bytes <= ARTIFACT_BUDGET);
+    }
+
+    #[test]
+    fn an_oversized_artifact_is_still_served_once() {
+        // A single file larger than the whole budget must not evict itself.
+        let s = Store::default();
+        s.put_artifact(1, "fits", artifact(ARTIFACT_BUDGET + 1));
+        assert!(s.artifact(1, "fits").is_some());
     }
 }

@@ -1,13 +1,15 @@
 use std::sync::mpsc::{sync_channel, SyncSender};
 use std::sync::Arc;
 
-use fl_solve::{Calibration, Engine, SolveHints, Solution};
+use fl_solve::{Calibration, Engine, Solution, SolveHints};
 
 use crate::store::{JobStatus, Store};
 
 pub struct Task {
     pub job: u64,
-    pub bytes: Vec<u8>,
+    /// The upload, shared: an endpoint that also returns a FITS still needs
+    /// the original bytes after the worker is done with them.
+    pub bytes: Arc<Vec<u8>>,
     pub hints: SolveHints,
 }
 

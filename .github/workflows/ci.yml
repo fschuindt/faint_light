@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  # A rustc warning fails the build. The two clippy lints allowed below are
+  # deliberate: they fire on numeric loops whose index is genuinely used
+  # (`out[d]`, `xy[m]`) and on a union-find helper, where the suggested
+  # rewrites would not be improvements.
+  RUSTFLAGS: -D warnings
+  CLIPPY_ALLOW: -A clippy::needless_range_loop -A clippy::ptr_arg
+
+jobs:
+  test:
+    name: test and lint
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install the toolchain
+        run: rustup toolchain install stable --profile minimal --component clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Test
+        run: cargo test --workspace
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings ${{ env.CLIPPY_ALLOW }}
+
+      # The GUI is a separate feature and a separate compilation; it needs the
+      # toolkit's build dependencies even to type-check.
+      - name: GUI build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libx11-dev libxext-dev libxft-dev libxinerama-dev libxcursor-dev \
+            libxrender-dev libxfixes-dev libpango1.0-dev libgl1-mesa-dev libglu1-mesa-dev
+          bash .github/scripts/install-cmake.sh
+
+      - name: Test the GUI and the tools
+        run: |
+          cargo test -p fl-server --features gui,tools
+          cargo clippy -p fl-server --features gui,tools --all-targets -- -D warnings ${{ env.CLIPPY_ALLOW }}

@@ -2,6 +2,8 @@
 //! matched (star xyz, pixel) pairs — a port of astrometry.net's
 //! fit_tan_wcs_solve (Procrustes via 2x2 SVD).
 
+use fl_fits::write::Card;
+
 /// ra/dec in degrees to unit vector.
 pub fn radec_to_xyz(ra_deg: f64, dec_deg: f64) -> [f64; 3] {
     let (ra, dec) = (ra_deg.to_radians(), dec_deg.to_radians());
@@ -158,7 +160,71 @@ impl TanWcs {
         let v = inv * (-self.cd[1][0] * xd + self.cd[0][0] * yd);
         Some((self.crpix[0] + u, self.crpix[1] + v))
     }
+
+    /// The solution as FITS header cards, in the order and precision
+    /// astrometry.net writes into a `.wcs` file. `width`/`height` are the
+    /// image dimensions in pixels, recorded as IMAGEW/IMAGEH the way
+    /// solve-field does.
+    pub fn fits_cards(&self, width: f64, height: f64) -> Vec<Card> {
+        vec![
+            Card::int("WCSAXES", 2, "number of celestial axes"),
+            Card::decimal("EQUINOX", 2000.0, 1, "equinox of the reference frame"),
+            Card::string("RADESYS", "FK5", "reference frame"),
+            Card::decimal("LONPOLE", 180.0, 1, ""),
+            Card::decimal("LATPOLE", 0.0, 1, ""),
+            Card::string("CTYPE1", "RA---TAN", "TAN (gnomonic) projection"),
+            Card::string("CTYPE2", "DEC--TAN", "TAN (gnomonic) projection"),
+            Card::string("CUNIT1", "deg", "axis unit"),
+            Card::string("CUNIT2", "deg", "axis unit"),
+            Card::float("CRVAL1", self.crval[0], "RA of the reference point"),
+            Card::float("CRVAL2", self.crval[1], "DEC of the reference point"),
+            // FITS pixel indices start at 1; ours start at 0.
+            Card::float("CRPIX1", self.crpix[0] + 1.0, "X reference pixel"),
+            Card::float("CRPIX2", self.crpix[1] + 1.0, "Y reference pixel"),
+            Card::float("CD1_1", self.cd[0][0], "transformation matrix"),
+            Card::float("CD1_2", self.cd[0][1], ""),
+            Card::float("CD2_1", self.cd[1][0], ""),
+            Card::float("CD2_2", self.cd[1][1], ""),
+            Card::decimal("IMAGEW", width, 1, "image width, pixels"),
+            Card::decimal("IMAGEH", height, 1, "image height, pixels"),
+        ]
+    }
 }
+
+/// True for header keywords that describe a celestial WCS.
+///
+/// Writing a fresh solution into someone else's FITS means clearing all of
+/// them, not just the ones being rewritten: a leftover CDELT/CROTA pair, a
+/// PC matrix or a SIP distortion polynomial would be read alongside the new
+/// CD matrix and quietly move the solution.
+pub fn is_wcs_key(key: &str) -> bool {
+    const EXACT: &[&str] = &[
+        "WCSAXES", "WCSNAME", "EQUINOX", "EPOCH", "RADESYS", "RADECSYS", "LONPOLE", "LATPOLE",
+        "IMAGEW", "IMAGEH", "A_ORDER", "B_ORDER", "AP_ORDER", "BP_ORDER", "A_DMAX", "B_DMAX",
+    ];
+    if EXACT.contains(&key) {
+        return true;
+    }
+    // Axis-numbered keywords: CTYPE1, CRVAL2, CDELT1, ...
+    const AXIS: &[&str] = &[
+        "CTYPE", "CUNIT", "CRVAL", "CRPIX", "CDELT", "CROTA", "CRDER", "CSYER", "CNAME",
+    ];
+    if let Some(rest) = AXIS.iter().find_map(|p| key.strip_prefix(p)) {
+        return !rest.is_empty() && rest.bytes().all(|b| b.is_ascii_digit());
+    }
+    // i_j-indexed keywords: the CD and PC matrices, PV projection
+    // parameters, and the SIP coefficients A_i_j / B_i_j / AP_i_j / BP_i_j.
+    const INDEXED: &[&str] = &["CD", "PC", "PV", "AP_", "BP_", "A_", "B_"];
+    if let Some(rest) = INDEXED.iter().find_map(|p| key.strip_prefix(p)) {
+        let mut parts = rest.split('_');
+        return matches!((parts.next(), parts.next(), parts.next()), (Some(i), Some(j), None)
+            if !i.is_empty()
+                && !j.is_empty()
+                && i.bytes().chain(j.bytes()).all(|b| b.is_ascii_digit()));
+    }
+    false
+}
+
 
 /// 2x2 SVD: M = U * diag(s) * V^T with U, V rotations-or-reflections.
 fn svd2x2(m: [[f64; 2]; 2]) -> ([[f64; 2]; 2], [f64; 2], [[f64; 2]; 2]) {
@@ -468,5 +534,38 @@ mod tests {
         let (ra2, dec2) = fit.pixel_to_radec(1000.0, 750.0);
         assert!((ra1 - ra2).abs() * dec1.to_radians().cos() < 3e-3);
         assert!((dec1 - dec2).abs() < 3e-3);
+    }
+    #[test]
+    fn wcs_cards_round_trip_through_a_written_fits() {
+        let wcs = TanWcs {
+            crval: [83.94, -5.74],
+            crpix: [999.5, 749.5],
+            cd: [[-6.1e-4, 1.2e-5], [1.1e-5, 6.1e-4]],
+        };
+        let buf = fl_fits::write::header_only(&wcs.fits_cards(2000.0, 1500.0));
+        let fits = fl_fits::Fits::parse(&buf).unwrap();
+        let h = &fits.hdus[0].header;
+        assert_eq!(h.get_str("CTYPE1"), Some("RA---TAN"));
+        assert!((h.get_f64("CRVAL1").unwrap() - wcs.crval[0]).abs() < 1e-9);
+        // 0-based internally, 1-based on disk.
+        assert!((h.get_f64("CRPIX2").unwrap() - 750.5).abs() < 1e-9);
+        assert!((h.get_f64("CD1_2").unwrap() - wcs.cd[0][1]).abs() < 1e-18);
+        assert_eq!(h.get_f64("IMAGEW"), Some(2000.0));
+    }
+
+    #[test]
+    fn wcs_keys_cover_the_conventions_we_replace() {
+        for k in [
+            "CRVAL1", "CRPIX2", "CTYPE1", "CUNIT2", "CDELT1", "CROTA2", "CD1_1", "PC2_1", "PV2_3",
+            "A_2_0", "BP_0_1", "A_ORDER", "EQUINOX", "RADESYS", "LONPOLE", "IMAGEW",
+        ] {
+            assert!(is_wcs_key(k), "{k} should be a WCS keyword");
+        }
+        for k in [
+            "SIMPLE", "BITPIX", "NAXIS1", "OBJECT", "EXPTIME", "BZERO", "DATE-OBS", "CCD-TEMP",
+            "CD", "COMMENT", "GAIN", "AIRMASS",
+        ] {
+            assert!(!is_wcs_key(k), "{k} should be preserved");
+        }
     }
 }
