@@ -37,7 +37,7 @@ REMOTE ?= $(subst ",,$(DEPLOY_REMOTE))
 ON ?= remote
 PY ?= python3
 SSH = ssh -p $(REMOTE_SSH_PORT) -i $(REMOTE_SSH_KEY) $(REMOTE_SSH_USER)@$(REMOTE_SSH_HOST)
-RUNNER = FLT_MODE=container FLT_CONTAINER=faint_light FLT_HOST=localhost:8100 \
+RUNNER = FLT_MODE=container FLT_CONTAINER=faint_light FLT_HOST=localhost:7222 \
          $(if $(FLT_TIMEOUT),FLT_TIMEOUT=$(FLT_TIMEOUT)) python3 scripts/tests/run_suite.py
 
 DEPLOY ?= 1

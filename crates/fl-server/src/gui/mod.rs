@@ -2,8 +2,8 @@
 //!
 //! A small window over one embedded server: a Server tab that configures and
 //! runs the listener, and a Logs tab that mirrors the tracing output the
-//! headless binary prints. Solving belongs to the API — and, later, to the
-//! web UI the server will serve at its root.
+//! headless binary prints. Solving belongs to the API and to the
+//! web UI the server serves at its root.
 
 mod autostart;
 pub mod logs;
@@ -225,6 +225,7 @@ struct ServerUi {
     at_login: CheckButton,
     start: Button,
     stop: Button,
+    open_web: Button,
 }
 
 fn build_server_tab(state: &Rc<RefCell<State>>, tx: &app::Sender<Msg>) -> Rc<ServerUi> {
@@ -296,6 +297,12 @@ fn build_server_tab(state: &Rc<RefCell<State>>, tx: &app::Sender<Msg>) -> Rc<Ser
 
     let start = theme::button(CONTENT_X + LABEL_W, y, BUTTON_W, "Start");
     let stop = theme::button(CONTENT_X + LABEL_W + BUTTON_W + GAP, y, BUTTON_W, "Stop");
+    let open_web = theme::button(
+        CONTENT_X + LABEL_W + (BUTTON_W + GAP) * 2 + GAP,
+        y,
+        BUTTON_W + 30,
+        "Open web UI",
+    );
     y += ROW + GAP + 12;
 
     theme::rule(CONTENT_X, y, CONTENT_W);
@@ -319,12 +326,27 @@ fn build_server_tab(state: &Rc<RefCell<State>>, tx: &app::Sender<Msg>) -> Rc<Ser
         at_login,
         start,
         stop,
+        open_web,
     });
 
     {
         let (state, ui, tx) = (state.clone(), ui.clone(), *tx);
         let mut start_btn = ui.start.clone();
         start_btn.set_callback(move |_| start_server(&state, &ui, &tx));
+    }
+    {
+        let state = state.clone();
+        let mut open_btn = ui.open_web.clone();
+        open_btn.set_callback(move |_| {
+            if let Some(addr) = state.borrow().runner.address() {
+                let url = format!("http://{}/", client_host(addr));
+                if let Err(e) = open_in_browser(&url) {
+                    dialog::alert_default(&format!(
+                        "Could not open a browser: {e}\n\nOpen {url} yourself."
+                    ));
+                }
+            }
+        });
     }
     {
         let (state, ui) = (state.clone(), ui.clone());
@@ -446,15 +468,11 @@ fn refresh(state: &State, ui: &ServerUi) {
     match state.runner.address() {
         Some(addr) => {
             status.set_value(&format!("Running - http://{addr}"));
-            // 0.0.0.0 is not an address a client can dial, so show one that
-            // is; the NINA field wants the /nova prefix specifically.
-            let host = if addr.ip().is_unspecified() {
-                format!("localhost:{}", addr.port())
-            } else {
-                addr.to_string()
-            };
+            // The NINA field wants the /nova prefix specifically.
+            let host = client_host(addr);
             url.set_label(&format!(
-                "NINA and other astrometry.net clients:  http://{host}/nova\n\
+                "Web UI (solve in your browser):  http://{host}/\n\
+                 NINA and other astrometry.net clients:  http://{host}/nova\n\
                  Faint Light API:  http://{host}/api/v1/solve"
             ));
         }
@@ -465,17 +483,63 @@ fn refresh(state: &State, ui: &ServerUi) {
     }
     url.redraw();
 
-    let (mut start, mut stop) = (ui.start.clone(), ui.stop.clone());
+    let (mut start, mut stop, mut open_web) =
+        (ui.start.clone(), ui.stop.clone(), ui.open_web.clone());
     if state.starting {
         start.deactivate();
         stop.deactivate();
+        open_web.deactivate();
     } else if running {
         start.deactivate();
         stop.activate();
+        open_web.activate();
     } else {
         start.activate();
         stop.deactivate();
+        open_web.deactivate();
     }
+}
+
+/// `host:port` a client on this machine can dial: 0.0.0.0 (or ::) is not
+/// an address a browser can open, so it becomes localhost.
+fn client_host(addr: std::net::SocketAddr) -> String {
+    if addr.ip().is_unspecified() {
+        format!("localhost:{}", addr.port())
+    } else {
+        addr.to_string()
+    }
+}
+
+/// Hand a URL to the platform's default browser.
+fn open_in_browser(url: &str) -> std::io::Result<()> {
+    use std::process::{Command, Stdio};
+    let mut cmd = if cfg!(target_os = "windows") {
+        // `start` is a cmd builtin; the empty string is the window title
+        // it would otherwise take the URL for.
+        let mut c = Command::new("cmd");
+        c.args(["/C", "start", "", url]);
+        // A GUI subsystem process would otherwise flash a console window.
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+            c.creation_flags(CREATE_NO_WINDOW);
+        }
+        c
+    } else if cfg!(target_os = "macos") {
+        let mut c = Command::new("open");
+        c.arg(url);
+        c
+    } else {
+        let mut c = Command::new("xdg-open");
+        c.arg(url);
+        c
+    };
+    cmd.stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map(|_| ())
 }
 
 fn load_settings_into(s: &Settings, ui: &ServerUi) {

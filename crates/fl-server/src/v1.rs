@@ -18,7 +18,7 @@ use serde_json::{json, Value};
 use fl_solve::{Parity, SolveHints};
 
 use crate::form::Form;
-use crate::solve::{await_job, calibration_json, derived_name, enqueue, store_fits};
+use crate::solve::{await_job, calibration_json, derived_name, enqueue, store_fits, store_preview};
 use crate::state::AppState;
 use crate::store::Artifact;
 
@@ -27,6 +27,7 @@ pub fn router() -> Router<AppState> {
         .route("/api/v1/solve", post(solve))
         .route("/api/v1/jobs/{id}/fits", get(fits))
         .route("/api/v1/jobs/{id}/skyview.svg", get(skyview_svg))
+        .route("/api/v1/jobs/{id}/preview.png", get(preview_png))
 }
 
 /// POST /api/v1/solve — solve an image synchronously.
@@ -36,6 +37,8 @@ pub fn router() -> Router<AppState> {
 /// - `fits`: build the solved image as FITS and report `fits_url`.
 /// - `skyview`: render the all-sky chart and report `skyview.chart_url`;
 ///   needs `timestamp`, `latitude` and `longitude`.
+/// - `preview`: render the upload as a viewable PNG and report
+///   `preview_url` (what the web UI draws its coordinate readout over).
 /// - hints (all optional): `scale_low`/`scale_high` in arcsec/px,
 ///   `center_ra`/`center_dec`/`radius` in degrees, `downsample`, and
 ///   `parity` (`normal`, `flip` or `both`).
@@ -47,6 +50,7 @@ async fn solve(State(state): State<AppState>, multipart: Multipart) -> Response 
     };
     let want_fits = form.flag("fits");
     let want_skyview = form.flag("skyview");
+    let want_preview = form.flag("preview");
 
     // Validate the observer before spending a solve on it.
     let observer = if want_skyview {
@@ -76,6 +80,7 @@ async fn solve(State(state): State<AppState>, multipart: Multipart) -> Response 
         job,
         fits = want_fits,
         skyview = want_skyview,
+        preview = want_preview,
         "solve accepted"
     );
 
@@ -131,6 +136,18 @@ async fn solve(State(state): State<AppState>, multipart: Multipart) -> Response 
         body["skyview"] = skyview(&state, job, &filename, &sol, &obs);
     }
 
+    if want_preview {
+        // A preview that fails is not worth failing a solve that succeeded;
+        // the caller still has the numbers.
+        match store_preview(&state, job, &filename, &bytes) {
+            Ok((w, h, factor)) => {
+                body["preview_url"] = json!(format!("/api/v1/jobs/{job}/preview.png"));
+                body["preview"] = json!({"width": w, "height": h, "factor": factor});
+            }
+            Err(e) => tracing::warn!(job, "preview failed: {e}"),
+        }
+    }
+
     tracing::info!(
         job,
         ms = started.elapsed().as_millis() as u64,
@@ -143,16 +160,21 @@ async fn solve(State(state): State<AppState>, multipart: Multipart) -> Response 
 
 /// GET /api/v1/jobs/{id}/fits
 async fn fits(State(state): State<AppState>, Path(id): Path<u64>) -> Response {
-    artifact_response(&state, id, "fits")
+    artifact_response(&state, id, "fits", "attachment")
 }
 
 /// GET /api/v1/jobs/{id}/skyview.svg
 async fn skyview_svg(State(state): State<AppState>, Path(id): Path<u64>) -> Response {
-    artifact_response(&state, id, "skyview")
+    artifact_response(&state, id, "skyview", "attachment")
 }
 
-/// Serve a stored artifact as a download.
-fn artifact_response(state: &AppState, job: u64, kind: &str) -> Response {
+/// GET /api/v1/jobs/{id}/preview.png — inline, so an `<img>` can show it.
+async fn preview_png(State(state): State<AppState>, Path(id): Path<u64>) -> Response {
+    artifact_response(&state, id, "preview", "inline")
+}
+
+/// Serve a stored artifact, as a download or for display.
+fn artifact_response(state: &AppState, job: u64, kind: &str, disposition: &str) -> Response {
     let Some(art) = state.store.artifact(job, kind) else {
         return error(
             StatusCode::NOT_FOUND,
@@ -164,7 +186,7 @@ fn artifact_response(state: &AppState, job: u64, kind: &str) -> Response {
             (header::CONTENT_TYPE, art.content_type.to_string()),
             (
                 header::CONTENT_DISPOSITION,
-                format!("attachment; filename=\"{}\"", art.filename),
+                format!("{disposition}; filename=\"{}\"", art.filename),
             ),
         ],
         art.bytes.as_ref().clone(),

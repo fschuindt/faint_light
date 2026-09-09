@@ -38,6 +38,7 @@ fl-solve = { workspace = true }
 fl-sky = { workspace = true }
 fl-extract = { workspace = true }
 fl-index = { workspace = true }
+image = { workspace = true }
 axum = { version = "0.8", features = ["multipart"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "sync"] }
 serde = { version = "1", features = ["derive"] }

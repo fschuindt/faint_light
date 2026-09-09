@@ -13,8 +13,8 @@
 - Charts for the regression suite, to compare runs
 
 ## Server
-- Web UI at `/`, over the `/api/v1` API
 - Grow the `/api/v1` surface beyond `solve`
+- Web UI: a history of the session's solves, and annotations (catalogue objects in the field)
 - Test with other clients: Sequence Generator Pro, APT, KStars/Ekos, AstroImageJ
 - Keep warm-start state across restarts
 - Document which index series to use per field size

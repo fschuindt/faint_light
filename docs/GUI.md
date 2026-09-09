@@ -1,15 +1,16 @@
 # Desktop GUI
 
 An optional FLTK window, off by default. It configures and runs the embedded
-server and shows its log; solving belongs to the API - and, later, to the web
-UI the server will serve at its root.
+server and shows its log; solving belongs to the API and to the
+web UI the server serves at its root, which the window's
+**Open web UI** button opens in your browser.
 
 Two tabs:
 
 - **Server** - status, bind address, port, index directory, cache budget and
-  solve timeout, with Start and Stop. Changing the port or the address rebinds
-  the listener in place; the loaded index files stay in memory, so a restart
-  is instant.
+  solve timeout, with Start, Stop and Open web UI. Changing the port or the
+  address rebinds the listener in place; the loaded index files stay in
+  memory, so a restart is instant.
 - **Logs** - the same `tracing` output the headless binary prints, read-only.
 
 Minimising the window puts it in the notification area (Windows only so far)

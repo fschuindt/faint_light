@@ -2,8 +2,8 @@
 //!
 //! Two APIs share one solver:
 //! - `/nova` — the nova.astrometry.net contract, for NINA and friends.
-//! - `/api/v1` — Faint Light's own API. The root is reserved for the web UI
-//!   that will front it.
+//! - `/api/v1` — Faint Light's own API.
+//! - `/` — the web UI, a browser front end over `/api/v1` (see `web.rs`).
 //!
 //! `main.rs` is a thin wrapper over this; the optional GUI (`--features
 //! gui`) drives the same pieces, which is why starting the HTTP listener is
@@ -24,13 +24,13 @@ pub mod solve;
 pub mod state;
 pub mod store;
 pub mod v1;
+pub mod web;
 pub mod worker;
 
 use std::net::SocketAddr;
 use std::sync::Arc;
 
 use axum::extract::DefaultBodyLimit;
-use axum::routing::get;
 use axum::Router;
 use tokio::runtime::Handle;
 
@@ -52,17 +52,9 @@ pub fn router(state: AppState) -> Router {
     Router::new()
         .nest("/nova", nova::router())
         .merge(v1::router())
-        .route("/", get(index))
+        .merge(web::router())
         .layer(DefaultBodyLimit::max(256 << 20))
         .with_state(state)
-}
-
-async fn index() -> String {
-    format!(
-        "faint_light {}\n\nPOST /api/v1/solve   plate solve an image\n     \
-         /nova           nova.astrometry.net-compatible API\n",
-        version()
-    )
 }
 
 /// The expensive half of the server: the solve engine, the worker thread it

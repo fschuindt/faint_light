@@ -4,9 +4,8 @@ services:
     image: faint_light
     container_name: faint_light
     ports:
-      # 8100 on the host so it can run beside a stock astrometry.net
-      # container on 8000. 7222 is faint_light's own default port.
-      - "8100:7222"
+      # faint_light's own default port, same as running the binary directly.
+      - "7222:7222"
     volumes:
       - ./indexes:/index:ro
     environment:

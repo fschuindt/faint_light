@@ -8,8 +8,8 @@ info:
   description: |
     Faint Light implements the HTTP contract of nova.astrometry.net so that
     imaging software such as NINA can use it as a drop-in local replacement,
-    Its own API lives at the root; the compatibility layer is served
-    under `/nova`.
+    Its own API lives under `/api/v1`, the compatibility layer under
+    `/nova`, and the web UI at `/`.
 
     Conventions shared by every operation:
 
@@ -46,7 +46,7 @@ tags:
   - name: results
     description: Solved calibrations and derived files.
   - name: solve
-    description: The Faint Light API. One endpoint solves; flags add a FITS and an all-sky chart.
+    description: The Faint Light API and its web UI. One endpoint solves; flags add a FITS, an all-sky chart and a preview image.
   - name: stubs
     description: Endpoints of the nova contract that Faint Light does not implement. Present so clients get a clean error.
 
@@ -54,26 +54,31 @@ paths:
   /:
     get:
       operationId: index
-      summary: Server banner
-      description: A short plain-text banner listing the two APIs. Handy as a liveness check. The web UI will live here.
+      summary: The web UI
+      description: |
+        A browser front end over this API: upload an image, read the solution,
+        hover the solved image for sky coordinates, see the sky chart and
+        download the solved FITS. Everything it needs (`/assets/*`,
+        `/favicon.ico`) is embedded in the binary, nothing is fetched from
+        the internet. The page carries the server version, which makes it a
+        liveness check too.
       tags: [solve]
       responses:
         "200":
-          description: Banner
+          description: The page
           content:
-            text/plain:
+            text/html:
               schema:
                 type: string
-                examples: ["faint_light 0.1.0"]
 
   /api/v1/solve:
     post:
       operationId: solve
       summary: Solve an image
       description: |
-        Solves in the request cycle — no polling. Two flags decide what else
-        it produces; both extras are reported as URLs so one response can
-        offer both and a browser can render the chart directly.
+        Solves in the request cycle — no polling. Three flags decide what
+        else it produces; every extra is reported as a URL so one response
+        can offer them all and a browser can render them directly.
 
         `fits=true` builds the solved image as FITS. A FITS upload comes back
         as it arrived — same pixels, same extensions, same instrument cards —
@@ -87,6 +92,14 @@ paths:
         SVG all-sky chart: zenith centred, horizon at the rim, North up, East
         left, constellation figures, and the image footprint outlined in red.
         It needs `timestamp`, `latitude` and `longitude`.
+
+        `preview=true` renders the upload as a PNG a browser can show:
+        greyscale, auto-stretched (shadows clipped a few deviations below the
+        median, a midtones curve lifting the median to a quarter grey) and
+        reduced by an integer factor so its longest edge is at most 2048
+        pixels. The web UI draws its coordinate readout over it. A preview
+        that cannot be rendered is logged and omitted rather than failing
+        the solve.
 
         Blocks for up to `FAINT_LIGHT_SOLVE_TIMEOUT` (default 300 s) plus 30 s
         of queueing grace. Outputs are cached for retrieval within a 256 MiB
@@ -107,6 +120,8 @@ paths:
                 fits:
                   $ref: "#/components/schemas/Flag"
                 skyview:
+                  $ref: "#/components/schemas/Flag"
+                preview:
                   $ref: "#/components/schemas/Flag"
                 timestamp:
                   type: string
@@ -217,6 +232,29 @@ paths:
                 type: string
         "404":
           description: The job produced no chart, or it has been evicted from the cache
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SolveError"
+
+  /api/v1/jobs/{id}/preview.png:
+    get:
+      operationId: previewPng
+      summary: The viewable rendering of a job's upload
+      description: Produced by `POST /api/v1/solve` with `preview=true`. Served inline, for an `<img>`.
+      tags: [solve]
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        "200":
+          description: 8-bit greyscale PNG
+          content:
+            image/png:
+              schema:
+                type: string
+                contentEncoding: binary
+        "404":
+          description: The job produced no preview, or it has been evicted from the cache
           content:
             application/json:
               schema:
@@ -940,6 +978,25 @@ components:
           examples: ["m42_light.solved.fits"]
         skyview:
           $ref: "#/components/schemas/SkyviewResult"
+        preview_url:
+          type: string
+          description: Present with `preview=true`, when the preview could be rendered. Path of the PNG.
+          pattern: "^/api/v1/jobs/\\d+/preview\\.png$"
+        preview:
+          type: object
+          description: Present alongside `preview_url`. Preview pixel `(i, j)` covers upload pixels `[i*factor, (i+1)*factor)` and `[j*factor, (j+1)*factor)`, in the same row order the WCS uses.
+          required: [width, height, factor]
+          properties:
+            width:
+              type: integer
+              description: Preview width, pixels.
+            height:
+              type: integer
+              description: Preview height, pixels.
+            factor:
+              type: integer
+              minimum: 1
+              description: Integer reduction from the upload; 1 when the upload fits 2048 pixels on its longest edge.
 
     SkyviewResult:
       type: object

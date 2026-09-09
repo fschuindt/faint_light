@@ -274,6 +274,7 @@ dependencies = [
  "fl-sky",
  "fl-solve",
  "fltk",
+ "image",
  "serde",
  "serde_json",
  "sha1_smol",

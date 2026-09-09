@@ -19,7 +19,10 @@ Full benchmark, method and the other charts:
 - **In-memory index cache** (not used for the benchmark): A configurable RAM budget (`FAINT_LIGHT_CACHE_GB`) that prefetches the indexes relevant to your rig.
 - Blind fallback always remains: first-ever solve works with zero hints. **The benchmark was created using blind solves.**
 - [Solved FITS and sky charts](#faint-light-api) (Bonus): one solve call can also hand back the image as a FITS carrying its WCS, and an all-sky chart of where the frame was taken.
+- **Web UI:** Open `http://localhost:7222/` in a browser to plate solve from there.
 - [Desktop GUI](docs/GUI.md) (Optional): a small cross-platform window to run the server and read its log. Off by default. Mainly created for Windows users.
+
+<img src="assets/web-UI.png" alt="Web UI">
 
 ## Documentation
 
@@ -38,7 +41,7 @@ flowchart LR
         direction TB
         Nova["nova.astrometry.net API"]
         API["Faint Light API"]
-        Web["Web UI (Planned)"]
+        Web["Web UI"]
     end
 
     subgraph Desktop["Desktop GUI Version"]
@@ -87,6 +90,10 @@ And you can use any API key (it's ignored).
 
 That's it.
 
+## Web UI
+
+With the server running, open [http://localhost:7222/](http://localhost:7222/). Drop in a FITS, JPEG, PNG or TIFF and press Solve.
+
 ## Configuration (environment variables)
 
 | Variable | Default | Meaning |
@@ -108,7 +115,7 @@ The complete contract, every endpoint, parameter and response, is specified in [
 |---|---|
 | `/api/v1/...` | The Faint Light API (Plate-solving and custom features) |
 | `/nova/...` | The nova.astrometry.net contract, for NINA and other clients (Plate-solving only) |
-| `/` | Reserved for the web UI |
+| `/` | The web UI |
 
 ### nova.astrometry.net API
 
@@ -167,12 +174,13 @@ curl -X POST http://localhost:7222/api/v1/solve -F file=@image.jpg
 }
 ```
 
-Two flags decide what else it produces:
+Three flags decide what else it produces:
 
 | Field | Effect |
 |---|---|
 | `fits=1` | Adds `fits_url`: the image as FITS carrying the solution. A FITS upload comes back as it arrived, same pixels, same cards, with only its WCS keywords replaced. Anything else becomes a 32-bit float image HDU |
 | `skyview=1` | Adds a `skyview` object with the field's alt/az and `chart_url`. Needs `timestamp`, `latitude` and `longitude` |
+| `preview=1` | Adds `preview_url`: the upload as an auto-stretched greyscale PNG, at most 2048 px on its longest edge, plus a `preview` object with its size and reduction factor. What the web UI shows |
 
 Optional solve hints: `scale_low`/`scale_high` (arcsec/px), `center_ra`/`center_dec`/`radius` (degrees), `downsample`, `parity`.
 
@@ -185,6 +193,7 @@ curl -X POST http://localhost:7222/api/v1/solve \
 
 curl -O http://localhost:7222/api/v1/jobs/2/fits
 curl -O http://localhost:7222/api/v1/jobs/2/skyview.svg
+curl -O http://localhost:7222/api/v1/jobs/2/preview.png   # with -F preview=1
 ```
 
 The chart below, for [this frame of Messier 22](https://fschuindt.722.network/2026/07/31/messier-22.html):
@@ -227,7 +236,7 @@ Layout:
 - `fl-extract` - image decoding + simplexy-style star extraction
 - `fl-solve` - geometric-hash quad matching, TAN WCS fitting (Procrustes), log-odds verification, warm-start engine
 - `fl-sky` - alt/az sky charts: embedded constellation figures, sidereal time / horizontal coordinates, SVG rendering
-- `fl-server` - axum HTTP server (`v1` and `nova` routers over a shared solve worker and job store); behind `--features gui` the FLTK front end, behind `--features tools` the debugging commands
+- `fl-server` - axum HTTP server (`v1` and `nova` routers over a shared solve worker and job store, and the web UI from `crates/fl-server/web/`, embedded at build time); behind `--features gui` the FLTK front end, behind `--features tools` the debugging commands
 
 ## License
 

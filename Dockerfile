@@ -27,6 +27,7 @@ RUN mkdir -p crates/fl-fits/src crates/fl-index/src crates/fl-extract/src \
 
 # The image ships the headless server; the GUI (`--features gui`) is a desktop
 # build and pulls in a C++ toolchain, so it stays out of the container.
+COPY VERSION ./
 COPY crates ./crates
 RUN touch crates/*/src/lib.rs crates/fl-server/src/main.rs \
     && cargo build --release -p fl-server

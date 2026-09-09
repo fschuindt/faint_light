@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <script>
+    /* Apply the saved theme before first paint. Default is light. */
+    (function () {
+      var t = null;
+      try { t = localStorage.getItem("theme"); } catch (e) {}
+      if (t === "dark") document.documentElement.setAttribute("data-theme", "dark");
+    })();
+  </script>
+  <title>Faint Light</title>
+  <meta name="description" content="Faint Light plate solver: upload an image, read its sky coordinates.">
+  <link rel="stylesheet" href="/assets/style.css">
+  <link rel="icon" type="image/png" sizes="32x32" href="/assets/favicon-32.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="/assets/favicon-180.png">
+  <link rel="shortcut icon" href="/favicon.ico">
+  <meta name="theme-color" content="#ffffff">
+</head>
+<body>
+  <div class="container">
+    <header class="masthead">
+      <a href="/" class="masthead-logo" title="Faint Light">
+        <img src="/assets/faint-light-logo.png" alt="Faint Light" width="1100" height="158">
+      </a>
+      <nav class="masthead-nav">
+        <button class="theme-toggle" type="button" aria-label="Toggle dark theme" title="Toggle dark theme">
+          <svg class="icon-sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+          <svg class="icon-moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+        </button>
+      </nav>
+    </header>
+
+    <main>
+      <div class="intro">
+        <p class="tagline">Plate solve an image and read its sky coordinates.</p>
+        <p class="subline">This server also answers the nova.astrometry.net API at <code>/nova</code> and its own at <code>/api/v1</code>.</p>
+        <p class="links">
+          <a class="gh-button" href="https://nightsky.observer/faint-light/" rel="noopener">
+            <svg viewBox="0 0 24 24" aria-hidden="true" class="stroke"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.8 3 2.8 15 0 18M12 3c-2.8 3-2.8 15 0 18"/></svg>
+            Website
+          </a>
+          <a class="gh-button" href="https://github.com/fschuindt/faint_light" rel="noopener">
+            <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
+            Source on GitHub
+          </a>
+          <a class="gh-button" href="https://github.com/fschuindt/faint_light/blob/master/openapi.yml" rel="noopener">
+            <svg viewBox="0 0 24 24" aria-hidden="true" class="stroke"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M9 13h6M9 17h6"/></svg>
+            openapi.yml
+          </a>
+        </p>
+      </div>
+
+      <form id="solve-form" class="solve" novalidate>
+        <div class="dropzone" id="dropzone" tabindex="0" role="button" aria-label="Choose an image to solve">
+          <input type="file" id="file" name="file" accept=".fits,.fit,.fts,.fz,.jpg,.jpeg,.png,.tif,.tiff,image/*" hidden>
+          <p class="drop-title">Drop an image here, or <span class="link">browse</span></p>
+          <p class="drop-hint">FITS, JPEG, PNG or TIFF. Pasting an image works too.</p>
+          <p class="drop-file" id="drop-file" hidden></p>
+        </div>
+
+        <div class="options">
+          <label class="check">
+            <input type="checkbox" id="opt-fits" checked>
+            <span><span class="k">Solved FITS</span><span class="d">Shows the image with sky coordinates under the mouse, and the FITS file to download.</span></span>
+          </label>
+          <label class="check">
+            <input type="checkbox" id="opt-skyview">
+            <span><span class="k">Sky view</span><span class="d">An all-sky chart of where the frame was taken. Needs the time and site below.</span></span>
+          </label>
+        </div>
+
+        <fieldset class="box observer" id="observer">
+          <legend>Time and site of the exposure</legend>
+          <div class="grid-fields">
+            <div class="field wide">
+              <label for="timestamp">Timestamp, UTC</label>
+              <div class="with-button">
+                <input type="text" id="timestamp" name="timestamp" placeholder="2026-01-15T02:30:00Z" autocomplete="off" spellcheck="false">
+                <button type="button" class="btn" id="btn-now" title="Use the current time">Now</button>
+              </div>
+              <span class="note" id="timestamp-note"></span>
+            </div>
+            <div class="field">
+              <label for="latitude">Latitude, °N</label>
+              <input type="text" id="latitude" name="latitude" inputmode="decimal" placeholder="40.7128" autocomplete="off">
+            </div>
+            <div class="field">
+              <label for="longitude">Longitude, °E</label>
+              <input type="text" id="longitude" name="longitude" inputmode="decimal" placeholder="-74.0060" autocomplete="off">
+            </div>
+            <div class="field action">
+              <button type="button" class="btn" id="btn-locate" title="Ask the browser for this device's position">Use my location</button>
+            </div>
+          </div>
+        </fieldset>
+
+        <details class="box hints">
+          <summary>Solve hints <span class="note">optional, all blind by default</span></summary>
+          <div class="grid-fields">
+            <div class="field">
+              <label for="scale_low">Pixel scale from, ″/px</label>
+              <input type="text" id="scale_low" name="scale_low" inputmode="decimal" placeholder="e.g. 1.5">
+            </div>
+            <div class="field">
+              <label for="scale_high">Pixel scale to, ″/px</label>
+              <input type="text" id="scale_high" name="scale_high" inputmode="decimal" placeholder="e.g. 3">
+            </div>
+            <div class="field">
+              <label for="center_ra">Centre RA, °</label>
+              <input type="text" id="center_ra" name="center_ra" inputmode="decimal" placeholder="0 to 360">
+            </div>
+            <div class="field">
+              <label for="center_dec">Centre Dec, °</label>
+              <input type="text" id="center_dec" name="center_dec" inputmode="decimal" placeholder="-90 to 90">
+            </div>
+            <div class="field">
+              <label for="radius">Search radius, °</label>
+              <input type="text" id="radius" name="radius" inputmode="decimal" placeholder="around the centre">
+            </div>
+            <div class="field">
+              <label for="downsample">Downsample</label>
+              <input type="text" id="downsample" name="downsample" inputmode="numeric" placeholder="automatic">
+            </div>
+            <div class="field">
+              <label for="parity">Parity</label>
+              <select id="parity" name="parity">
+                <option value="both" selected>Both</option>
+                <option value="normal">Normal</option>
+                <option value="flip">Flip</option>
+              </select>
+            </div>
+          </div>
+        </details>
+
+        <div class="actions">
+          <button type="submit" class="btn primary" id="solve-btn" disabled>Solve</button>
+          <span class="status" id="status" aria-live="polite"></span>
+        </div>
+      </form>
+
+      <p class="beta-note error" id="error" hidden></p>
+
+      <div id="result" hidden>
+        <div class="stat-row" id="stats"></div>
+
+        <section class="panel" id="image-panel" hidden>
+          <h2>Solved image</h2>
+          <div class="viewer" id="viewer">
+            <img id="preview" alt="The solved image" draggable="false">
+            <canvas id="overlay"></canvas>
+          </div>
+          <div class="readout" id="readout">
+            <div><span class="k">RA</span><span class="v" id="ro-ra">—</span></div>
+            <div><span class="k">Dec</span><span class="v" id="ro-dec">—</span></div>
+            <div><span class="k">Degrees</span><span class="v" id="ro-deg">—</span></div>
+            <div><span class="k">FITS pixel</span><span class="v" id="ro-px">—</span></div>
+          </div>
+          <p class="panel-actions">
+            <a class="gh-button" id="fits-dl" download>
+              <svg viewBox="0 0 24 24" aria-hidden="true" class="stroke"><path d="M12 3v12M6 9l6 6 6-6M4 19h16"/></svg>
+              <span>Download solved FITS</span>
+            </a>
+            <button type="button" class="gh-button" id="btn-copy" hidden>Copy pinned coordinates</button>
+            <label class="check inline"><input type="checkbox" id="opt-grid" checked> <span>Grid</span></label>
+            <span class="note">Move the mouse over the image; click to pin a point. The preview is auto-stretched; the FITS keeps the original pixels.</span>
+          </p>
+        </section>
+
+        <section class="panel" id="sky-panel" hidden>
+          <h2>Sky view</h2>
+          <div class="sky-chart" id="sky-chart"></div>
+          <p class="panel-actions">
+            <a class="gh-button" id="sky-dl" download>
+              <svg viewBox="0 0 24 24" aria-hidden="true" class="stroke"><path d="M12 3v12M6 9l6 6 6-6M4 19h16"/></svg>
+              <span>Download chart (SVG)</span>
+            </a>
+            <span class="note" id="sky-note"></span>
+          </p>
+        </section>
+
+        <section class="panel">
+          <h2>Details</h2>
+          <table class="details" id="details"></table>
+          <details class="raw">
+            <summary>Raw response</summary>
+            <pre id="raw"></pre>
+          </details>
+          <details class="raw">
+            <summary>The same call with curl</summary>
+            <pre id="curl"></pre>
+          </details>
+        </section>
+      </div>
+    </main>
+
+    <footer class="footer">
+      <a class="footer-logo" href="https://nightsky.observer/" rel="noopener" title="nightsky.observer">
+        <img src="/assets/nightsky-observer-logo.png" alt="nightsky.observer" width="1100" height="181">
+      </a>
+      <small>
+        <span class="mono">faint_light {{VERSION}}</span> &middot;
+        <a href="https://nightsky.observer/faint-light/" rel="noopener">Website</a> &middot;
+        <a href="https://github.com/fschuindt/faint_light" rel="noopener">GitHub</a> &middot;
+        <a href="https://github.com/fschuindt/faint_light/blob/master/openapi.yml" rel="noopener">openapi.yml</a> &middot;
+        <a href="/nova">/nova</a> &middot;
+        <span>API at <code>/api/v1/solve</code></span><br>
+        A <a href="https://nightsky.observer/" rel="noopener">nightsky.observer</a> project, maintained by <a href="https://fschuindt.722.network/about" rel="noopener">fschuindt</a>. Apache-2.0.
+      </small>
+    </footer>
+  </div>
+  <script src="/assets/app.js"></script>
+</body>
+</html>

@@ -72,7 +72,8 @@ check() { # description, expected substring, curl args...
     esac
 }
 
-check "banner"        "faint_light"        "$base/"
+check "web UI"        "faint_light"        "$base/"
+check "web UI script" "api/v1/solve"       "$base/assets/app.js"
 check "nova root"     "astrometry.net"     "$base/nova"
 check "nova login"    '"status":"success"' -X POST "$base/nova/api/login" -F 'request-json={}'
 check "v1 solve"      '"status":"success"' -X POST "$base/api/v1/solve" \
