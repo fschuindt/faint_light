@@ -33,6 +33,10 @@ Full benchmark, method and the other charts:
 
 ## Quick start
 
+You can download it pre-compiled [here](https://github.com/fschuindt/faint_light/releases/latest).
+
+If you're on Windows and not sure of what you're doing, you probably want to download it [here](https://github.com/fschuindt/faint_light/releases/latest/download/faint-light-windows-x64-gui.zip).
+
 The **headless version** includes just the Faint Light API Server. The **desktop GUI version** includes both the Faint Light API Server and a simple Windows-like desktop GUI. The desktop GUI was designed for Windows users that want to avoid Docker and CLIs. It's just for setting the server on/off, and basic configuration. Plate-solving and other features are done via the API or the web UI, which both versions have.
 
 ```mermaid

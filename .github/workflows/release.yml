@@ -192,6 +192,14 @@ jobs:
           mkdir -p release
           find artifacts -type f \( -name '*.tar.gz' -o -name '*.zip' \) \
             -exec cp {} release/ \;
+          # A version-less copy of each archive, so a fixed link such as
+          # .../releases/latest/download/faint-light-windows-x64-gui.zip
+          # (the website's download button) always fetches the current
+          # release. Byte-identical to the versioned archive beside it.
+          version=$(cat VERSION)
+          for f in release/faint-light-"${version}"-*; do
+            cp "$f" "release/faint-light-${f#release/faint-light-${version}-}"
+          done
           (cd release && sha256sum * > SHA256SUMS)
           ls -l release
 
@@ -210,5 +218,7 @@ jobs:
               --title "Faint Light $(cat VERSION)" \
               --notes "Built from \`$tag\`. Binaries are per OS, architecture and \
           flavour: \`headless\` is the server on its own, \`gui\` is the desktop \
-          window with the server embedded. Checksums in SHA256SUMS."
+          window with the server embedded. The archives without a version in \
+          their name are identical copies, kept so download links stay stable. \
+          Checksums in SHA256SUMS."
           fi
