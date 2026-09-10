@@ -3,7 +3,7 @@ jsonSchemaDialect: https://json-schema.org/draft/2020-12/schema
 
 info:
   title: Faint Light
-  version: 0.1.0a
+  version: 0.1.1a
   summary: Fast, self-hosted plate solving with a nova.astrometry.net-compatible API.
   description: |
     Faint Light implements the HTTP contract of nova.astrometry.net so that

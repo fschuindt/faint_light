@@ -53,9 +53,28 @@ for _ in $(seq 1 60); do
     if curl -fsS "$base/" >/dev/null 2>&1; then ready=1; break; fi
     sleep 1
 done
+# The GUI writes its log to a file rather than the console, so on a failure
+# that file is the only account of what happened.
+gui_log=""
+if [ "$KIND" = gui ]; then
+    if [ "$OS" = Windows ]; then
+        gui_log="$(cygpath -u "$APPDATA")/faint_light/faint-light.log"
+    else
+        gui_log="${XDG_CONFIG_HOME:-$HOME/.config}/faint_light/faint-light.log"
+    fi
+fi
+
 if [ "$ready" -ne 1 ]; then
     echo "FAIL: nothing answered on $base after 60s"
+    if kill -0 "$pid" 2>/dev/null; then
+        echo "the process is still running (pid $pid)"
+    else
+        echo "the process has already exited"
+    fi
     echo "--- console ---"; cat "$console"
+    if [ -n "$gui_log" ] && [ -f "$gui_log" ]; then
+        echo "--- $gui_log ---"; cat "$gui_log"
+    fi
     exit 1
 fi
 
@@ -89,11 +108,6 @@ sleep 1
 # log file it keeps beside its settings.
 logs="$console"
 if [ "$KIND" = gui ]; then
-    if [ "$OS" = Windows ]; then
-        gui_log="$(cygpath -u "$APPDATA")/faint_light/faint-light.log"
-    else
-        gui_log="${XDG_CONFIG_HOME:-$HOME/.config}/faint_light/faint-light.log"
-    fi
     if [ -f "$gui_log" ]; then
         cat "$gui_log" >>"$console"
     elif [ ! -s "$console" ]; then

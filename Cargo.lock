@@ -240,7 +240,7 @@ checksum = "3e0f1c7c3a72c66fd80abe965175f7523475c0489a87d3ff9d6e8c87d87a9d2d"
 
 [[package]]
 name = "fl-extract"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "fl-fits",
  "image",
@@ -249,14 +249,14 @@ dependencies = [
 
 [[package]]
 name = "fl-fits"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "thiserror",
 ]
 
 [[package]]
 name = "fl-index"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "fl-fits",
  "memmap2",
@@ -265,7 +265,7 @@ dependencies = [
 
 [[package]]
 name = "fl-server"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "axum",
  "fl-extract",
@@ -288,11 +288,11 @@ dependencies = [
 
 [[package]]
 name = "fl-sky"
-version = "0.1.0"
+version = "0.1.1"
 
 [[package]]
 name = "fl-solve"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "fl-extract",
  "fl-fits",

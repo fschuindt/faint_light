@@ -138,7 +138,27 @@ pub fn run(log_buffer: LogBuffer) -> Result<(), String> {
     let mut log_view = LogView::new(logs_ui, log_buffer);
     // 0.15 s is a compromise: fast enough that the log tab feels live,
     // slow enough that an idle window costs nothing.
-    while !quit.get() && app::wait_for(0.15).unwrap_or(false) {
+    //
+    // The return value of `wait_for` is not "keep going": FLTK's
+    // Fl::wait(time) is documented as always 1 on Windows but zero
+    // elsewhere when nothing happened within the time. Looping on it made
+    // the Linux GUI shut its server down and exit the first time the window
+    // sat idle for 150 ms. The window being closed is what ends the loop;
+    // a wait that keeps failing (a broken display connection) is the only
+    // other way out, and a single interrupted wait is not that.
+    let mut wait_errors = 0;
+    while !quit.get() && win.shown() {
+        match app::wait_for(0.15) {
+            Ok(_) => wait_errors = 0,
+            Err(e) => {
+                wait_errors += 1;
+                if wait_errors > 20 {
+                    tracing::error!("event loop failing repeatedly, exiting: {e}");
+                    break;
+                }
+                continue;
+            }
+        }
         if let Some(msg) = rx.recv() {
             match msg {
                 Msg::Started => {
